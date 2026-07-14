@@ -25,9 +25,6 @@ BASE_URL = os.environ.get("BASE_URL", "https://lwam-bot.onrender.com")
 TELEGRAM_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 ETHIOPIA_TZ = pytz.timezone("Africa/Addis_Ababa")
 
-# ===== የአሁኑ ቋንቋ =====
-current_lang = 'am'
-
 # ===== ዳታቤዝ (Postgres) =====
 def get_db_connection():
     return psycopg2.connect(DATABASE_URL, sslmode='require')
@@ -168,10 +165,31 @@ def get_translations(lang='am'):
     }
     return translations.get(lang, translations['am'])
 
-# ===== የWebApp HTML ገጽ =====
+# ===== የWebApp HTML ገጽ (ተስተካክሏል) =====
 def get_webapp_html(lang='am'):
     t = get_translations(lang)
-    return f"""
+    
+    # JavaScript እና CSS በተናጥል
+    js_code = """
+    function showPage(id) {
+        document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+        document.getElementById('pagesContainer').scrollTop=0;
+        document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+        if(id==='page-home') document.querySelector('.nav-item:nth-child(1)').classList.add('active');
+        else if(id==='page-products') document.querySelector('.nav-item:nth-child(2)').classList.add('active');
+        else if(id==='page-ai') document.querySelector('.nav-item:nth-child(3)').classList.add('active');
+        else if(id==='page-share') document.querySelector('.nav-item:nth-child(4)').classList.add('active');
+        else if(id==='page-jobs') document.querySelector('.nav-item:nth-child(5)').classList.add('active');
+    }
+    function switchLanguage(lang) {
+        document.querySelectorAll('#langSelector button').forEach(b=>b.classList.remove('active'));
+        document.querySelector('#langSelector button[data-lang=\"'+lang+'\"]').classList.add('active');
+        window.location.href = '/webapp?lang='+lang;
+    }
+    """
+    
+    html = f"""
 <!DOCTYPE html>
 <html lang="am">
 <head>
@@ -579,28 +597,12 @@ def get_webapp_html(lang='am'):
     </div>
 </div>
 <script>
-    var translations = {lang};
-    function showPage(id) {
-        document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-        document.getElementById(id).classList.add('active');
-        document.getElementById('pagesContainer').scrollTop=0;
-        document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
-        if(id==='page-home') document.querySelector('.nav-item:nth-child(1)').classList.add('active');
-        else if(id==='page-products') document.querySelector('.nav-item:nth-child(2)').classList.add('active');
-        else if(id==='page-ai') document.querySelector('.nav-item:nth-child(3)').classList.add('active');
-        else if(id==='page-share') document.querySelector('.nav-item:nth-child(4)').classList.add('active');
-        else if(id==='page-jobs') document.querySelector('.nav-item:nth-child(5)').classList.add('active');
-    }
-    function switchLanguage(lang) {
-        document.querySelectorAll('#langSelector button').forEach(b=>b.classList.remove('active'));
-        document.querySelector('#langSelector button[data-lang=\"'+lang+'\"]').classList.add('active');
-        // Reload page with new language parameter
-        window.location.href = '/webapp?lang='+lang;
-    }
+    {js_code}
 </script>
 </body>
 </html>
     """
+    return html
 
 # ===== የWebApp ገጽ =====
 @app.route('/webapp')
@@ -632,7 +634,6 @@ def index():
 
         # ===== WebApp ማስተናገጃ =====
         if text == '/start':
-            # Send webapp button
             webapp_url = f"{BASE_URL}/webapp?lang=am"
             requests.post(f"{TELEGRAM_URL}/sendMessage", json={
                 'chat_id': chat_id,
