@@ -1,4 +1,63 @@
+from flask import Flask, request, jsonify, render_template_string
+import requests
+import os
+import json
+import random
+from datetime import datetime
+
+app = Flask(__name__)
+
+# ===== ከ Render Environment Variables =====
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+OWNER_CHAT_ID = os.environ.get("OWNER_CHAT_ID")
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
+BASE_URL = os.environ.get("BASE_URL", "https://marshalomtelegram-website.onrender.com")
+
+# ===== ፓስዎርዶች (ከRender ENV) =====
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "marshalom777")
+TEAM_PASSWORD = os.environ.get("TEAM_PASSWORD", "team777")
+EMP_PASSWORD = os.environ.get("EMP_PASSWORD", "emp777")
+
+TELEGRAM_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
+
+# ===== ማመልከቻ መላክ =====
+@app.route('/submit-application', methods=['POST'])
+def submit_application():
+    data = request.get_json()
+    name = data.get('name', '')
+    phone = data.get('phone', '')
+    email = data.get('email', '')
+    
+    requests.post(f"{TELEGRAM_URL}/sendMessage", json={
+        'chat_id': OWNER_CHAT_ID,
+        'text': f"📝 **አዲስ ማመልከቻ!**\n\n👤 ስም: {name}\n📱 ስልክ: {phone}\n📧 ኢሜይል: {email}"
+    })
+    return jsonify({"ok": True})
+
+# ===== አስቸኳይ መልእክት =====
+@app.route('/send-urgent', methods=['POST'])
+def send_urgent():
+    data = request.get_json()
+    msg = data.get('message', '')
+    requests.post(f"{TELEGRAM_URL}/sendMessage", json={
+        'chat_id': OWNER_CHAT_ID,
+        'text': f"🚨 **አስቸኳይ መልእክት**\n\n{msg}"
+    })
+    return jsonify({"ok": True})
+
+# ===== የዋጋ ጥያቄ =====
+@app.route('/ask-price', methods=['POST'])
+def ask_price():
+    data = request.get_json()
+    product = data.get('product', '')
+    requests.post(f"{TELEGRAM_URL}/sendMessage", json={
+        'chat_id': OWNER_CHAT_ID,
+        'text': f"💰 **የዋጋ ጥያቄ**\n\n📦 ምርት: {product}"
+    })
+    return jsonify({"ok": True})
+
 def get_webapp_html():
+    # የማህበራዊ ሚዲያ ሊንኮች
     social_links = {
         'youtube': 'https://youtube.com/@ShalomTechnology',
         'tiktok': 'https://www.tiktok.com/@marshalomcctv',
@@ -7,8 +66,8 @@ def get_webapp_html():
         'telegram': 'https://t.me/MarshalomTech',
         'website': 'https://marshalom.com'
     }
-
-    # የ JavaScript ኮድ (ከ f-string ውጭ አድርገነዋል)
+    
+    # የJavaScript ኮድ (ከf-string ውጭ)
     js_code = """
     function showPage(id) {
         document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -24,14 +83,14 @@ def get_webapp_html():
     function openSocial(url) { window.open(url, '_blank'); }
     function openAdminLogin() {
         var pwd = prompt('🔑 የአድሚን የይለፍ ቃል ያስገቡ:');
-        if(pwd === '{admin_password}') { showPage('page-admin'); } 
+        if(pwd === 'ADMIN_PASSWORD') { showPage('page-admin'); } 
         else if(pwd !== null) { alert('❌ የተሳሳተ የይለፍ ቃል!'); }
     }
     function openEmployeeLogin() {
         var user = prompt('👤 የተጠቃሚ ስም:');
         var pwd = prompt('🔑 የይለፍ ቃል:');
-        if(user === 'teamleader' && pwd === '{team_password}') { showPage('page-teamleader'); } 
-        else if(user === 'employee' && pwd === '{emp_password}') { showPage('page-employee'); } 
+        if(user === 'teamleader' && pwd === 'TEAM_PASSWORD') { showPage('page-teamleader'); } 
+        else if(user === 'employee' && pwd === 'EMP_PASSWORD') { showPage('page-employee'); } 
         else { alert('❌ የተሳሳተ መረጃ!'); }
     }
     function askPrice(productId, productName) {
@@ -154,8 +213,13 @@ def get_webapp_html():
         }
     }
     """
-
-    # የተሻሻለው HTML ቴምፕሌት (ከ f-string ውጭ)
+    
+    # ፓስዎርዶችን በJavaScript ውስጥ ተካ
+    js_code = js_code.replace('ADMIN_PASSWORD', ADMIN_PASSWORD)
+    js_code = js_code.replace('TEAM_PASSWORD', TEAM_PASSWORD)
+    js_code = js_code.replace('EMP_PASSWORD', EMP_PASSWORD)
+    
+    # ===== ሙሉ HTML (ከf-string ውጭ) =====
     html_template = """
 <!DOCTYPE html>
 <html lang="am">
@@ -165,130 +229,129 @@ def get_webapp_html():
     <title>ሻሎም ቴክኖሎጂ</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        * {{ margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', system-ui, sans-serif; }}
-        body {{ background: #0b1219; min-height: 100vh; display: flex; justify-content: center; align-items: center; padding: 12px; }}
-        .app-container {{ max-width: 420px; width: 100%; min-height: 780px; background: #17212b; border-radius: 36px; box-shadow: 0 20px 60px rgba(0,0,0,0.8), 0 0 0 2px #2b3a4a inset; overflow: hidden; padding: 16px; position: relative; }}
-        .header {{ text-align: center; padding-bottom: 12px; border-bottom: 1px solid #2b3a4a; margin-bottom: 12px; }}
-        .header .top-row {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }}
-        .header .lang-selector {{ display: flex; gap: 4px; }}
-        .header .lang-selector button {{ background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); color: #8aa3b5; padding: 3px 8px; border-radius: 12px; font-size: 10px; cursor: pointer; transition: 0.2s; }}
-        .header .lang-selector button.active {{ background: rgba(74,158,255,0.2); border-color: #4a9eff; color: #4a9eff; }}
-        .cctv-container {{ display: inline-block; position: relative; width: 40px; height: 40px; animation: spin 4s linear infinite; }}
-        @keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}
-        .cctv-dome {{ width: 34px; height: 20px; background: linear-gradient(180deg,#4a9eff,#1a5a8a); border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%; position: absolute; top: 4px; left: 3px; box-shadow: 0 0 20px rgba(74,158,255,0.3); }}
-        .cctv-dome::after {{ content: ''; width: 10px; height: 10px; background: radial-gradient(circle,#7ac7ff,#4a9eff); border-radius: 50%; position: absolute; top: 6px; left: 12px; box-shadow: inset 0 0 6px rgba(255,255,255,0.3); }}
-        .cctv-base {{ width: 20px; height: 6px; background: linear-gradient(180deg,#2b3a4a,#1a2a3a); border-radius: 0 0 10px 10px; position: absolute; bottom: 4px; left: 10px; }}
-        .cctv-red {{ width: 4px; height: 4px; background: #ff4444; border-radius: 50%; position: absolute; top: 2px; right: 6px; animation: blink 1s infinite; }}
-        @keyframes blink {{ 0%,100%{{opacity:1;}} 50%{{opacity:0.2;}} }}
-        .header h1 {{ font-size: 18px; font-weight: 700; background: linear-gradient(90deg,#4a9eff,#7ac7ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-top: 2px; }}
-        .header .sub {{ font-size: 11px; color: #8aa3b5; }}
-        .pages {{ flex: 1; overflow-y: auto; padding: 6px 0 70px; scroll-behavior: smooth; }}
-        .page {{ display: none; animation: fadeSlide 0.3s ease; }}
-        .page.active {{ display: block; }}
-        @keyframes fadeSlide {{ 0% {{ opacity: 0; transform: translateY(12px); }} 100% {{ opacity: 1; transform: translateY(0); }} }}
-        .page-title {{ font-size: 15px; font-weight: 600; color: #fff; display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }}
-        .back-btn {{ background: rgba(255,255,255,0.08); border: none; color: #fff; font-size: 18px; padding: 2px 12px; border-radius: 30px; cursor: pointer; }}
-        .menu-grid {{ display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 12px; }}
-        .menu-btn {{ border-radius: 14px; padding: 10px 4px; text-align: center; font-size: 9px; font-weight: 500; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 4px 15px rgba(0,0,0,0.3); color: #e0edf5; border: none; }}
-        .menu-btn:hover {{ transform: scale(1.06) translateY(-3px); box-shadow: 0 8px 25px rgba(0,0,0,0.5); }}
-        .menu-btn:active {{ transform: scale(0.95); }}
-        .menu-btn .icon {{ font-size: 22px; display: block; margin-bottom: 2px; }}
-        .menu-btn:nth-child(1){{background:linear-gradient(135deg,#2a3a4a,#1a2a3a);}}
-        .menu-btn:nth-child(2){{background:linear-gradient(135deg,#4a2a22,#3a1a12);}}
-        .menu-btn:nth-child(3){{background:linear-gradient(135deg,#4a3a1a,#3a2a0a);}}
-        .menu-btn:nth-child(4){{background:linear-gradient(135deg,#1a4a3a,#0a3a2a);}}
-        .menu-btn:nth-child(5){{background:linear-gradient(135deg,#3a2a5a,#2a1a4a);}}
-        .menu-btn:nth-child(6){{background:linear-gradient(135deg,#4a2a3a,#3a1a2a);}}
-        .menu-btn:nth-child(7){{background:linear-gradient(135deg,#4a3a1a,#3a2a0a);}}
-        .menu-btn:nth-child(8){{background:linear-gradient(135deg,#1a4a3a,#0a3a2a);}}
-        .menu-btn:nth-child(9){{background:linear-gradient(135deg,#2a3a5a,#1a2a4a);}}
-        .menu-btn:nth-child(10){{background:linear-gradient(135deg,#1a4a3a,#0a3a2a);}}
-        .menu-btn:nth-child(11){{background:linear-gradient(135deg,#4a2a1a,#3a1a0a);}}
-        .menu-btn:nth-child(12){{background:linear-gradient(135deg,#2a4a4a,#1a3a3a);}}
-        .menu-btn:nth-child(13){{background:linear-gradient(135deg,#4a4a1a,#3a3a0a);}}
-        .menu-btn:nth-child(14){{background:linear-gradient(135deg,#4a2a2a,#3a1a1a);}}
-        .menu-btn:nth-child(15){{background:linear-gradient(135deg,#1a2a4a,#0a1a3a);}}
-        .menu-btn:nth-child(16){{background:linear-gradient(135deg,#3a2a5a,#2a1a4a);}}
-        .menu-btn:nth-child(17){{background:linear-gradient(135deg,#4a2a3a,#3a1a2a);}}
-        .section-title {{ color: #b8a84a; font-size: 13px; font-weight: 600; margin-bottom: 8px; }}
-        .product-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }}
-        .product-card {{ background: rgba(255,255,255,0.04); border-radius: 14px; overflow: hidden; border: 1px solid rgba(255,255,255,0.06); transition: 0.25s; cursor: pointer; }}
-        .product-card:hover {{ transform: translateY(-4px); box-shadow: 0 8px 30px rgba(0,0,0,0.4); }}
-        .product-card .promo-img {{ width: 100%; height: 100px; background: linear-gradient(135deg,#1a2a3a,#2a3a4a); display: flex; align-items: center; justify-content: center; font-size: 40px; color: #b8a84a; }}
-        .product-card .info {{ padding: 6px 8px; text-align: center; }}
-        .product-card .name {{ font-weight: 600; font-size: 11px; color: #b8a84a; }}
-        .product-card .desc {{ font-size: 9px; color: #8aa3b5; margin: 2px 0 4px; }}
-        .product-card .ask-btn {{ width: 100%; padding: 4px; border: none; border-radius: 8px; color: #fff; font-weight: 600; font-size: 10px; cursor: pointer; transition: 0.2s; background: linear-gradient(135deg,#4a3a1a,#3a2a0a); }}
-        .product-card .ask-btn:hover {{ transform: scale(1.03); box-shadow: 0 4px 15px rgba(74,58,26,0.3); }}
-        .channel-link {{ padding: 8px; background: rgba(74,158,255,0.08); border-radius: 12px; text-align: center; border: 1px dashed #4a9eff; margin-bottom: 10px; cursor: pointer; }}
-        .channel-link a {{ color: #4a9eff; font-weight: 600; text-decoration: none; font-size: 12px; }}
-        .promo-banner {{ background: linear-gradient(135deg,#4a2a2a,#3a1a1a); border-radius: 12px; padding: 10px 14px; margin-top: 10px; display: flex; align-items: center; gap: 10px; border: 1px solid #4a3a1a; cursor: pointer; }}
-        .promo-banner .text {{ font-size: 12px; color: #c0d8e8; flex: 1; font-weight: 600; }}
-        .promo-banner .text strong {{ color: #b8a84a; }}
-        .promo-banner .link {{ color: #4a9eff; font-size: 11px; text-decoration: none; cursor: pointer; background: rgba(74,158,255,0.1); padding: 4px 12px; border-radius: 20px; font-weight: 600; transition: 0.2s; }}
-        .promo-banner .link:hover {{ background: rgba(74,158,255,0.2); }}
-        .bottom-nav {{ position: sticky; bottom: 0; background: rgba(15,26,36,0.92); backdrop-filter: blur(14px); border-top: 1px solid #2b3a4a; display: flex; justify-content: space-around; padding: 6px 0 12px; border-radius: 0 0 36px 36px; margin-top: 10px; }}
-        .nav-item {{ color: #6a8a9e; font-size: 8px; text-align: center; cursor: pointer; padding: 2px 6px; border-radius: 30px; transition: 0.2s; }}
-        .nav-item.active {{ color: #4a9eff; }}
-        .nav-item .icon {{ font-size: 16px; display: block; }}
-        .btn-primary {{ background: #4a9eff; border: none; border-radius: 30px; padding: 10px; color: #fff; font-weight: 600; font-size: 13px; width: 100%; cursor: pointer; transition: 0.2s; margin-top: 4px; }}
-        .btn-primary:hover {{ background: #6ab0ff; }}
-        .btn-primary.gold {{ background: #b8a84a; color: #1a1a2e; }}
-        .btn-primary.gold:hover {{ background: #c8b85a; }}
-        .modal {{ display: none; background: rgba(0,0,0,0.7); position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 100; justify-content: center; align-items: center; padding: 20px; }}
-        .modal.show {{ display: flex; }}
-        .modal .content {{ background: #1a2a3a; border-radius: 16px; padding: 20px; max-width: 380px; width: 100%; border: 1px solid #2b3a4a; }}
-        .modal .content h3 {{ color: #b8a84a; font-size: 16px; margin-bottom: 12px; }}
-        .modal .content p {{ color: #c0d8e8; font-size: 14px; line-height: 1.8; }}
-        .modal .content .btn-close {{ background: rgba(255,255,255,0.08); border: none; border-radius: 30px; padding: 10px; color: #fff; font-weight: 600; font-size: 13px; width: 100%; cursor: pointer; margin-top: 12px; transition: 0.2s; }}
-        .social-grid {{ display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 6px; }}
-        .social-item {{ background: rgba(255,255,255,0.04); border-radius: 12px; padding: 10px 4px; text-align: center; cursor: pointer; border: 1px solid rgba(255,255,255,0.06); transition: 0.25s; }}
-        .social-item:hover {{ transform: scale(1.05); border-color: #4a9eff; }}
-        .social-item .icon {{ font-size: 24px; display: block; }}
-        .social-item .label {{ font-size: 8px; color: #c0d8e8; margin-top: 2px; }}
-        .share-grid {{ display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 4px; margin-top: 6px; }}
-        .share-item {{ background: rgba(255,255,255,0.04); border-radius: 10px; padding: 8px 2px; text-align: center; cursor: pointer; border: 1px solid rgba(255,255,255,0.06); transition: 0.25s; }}
-        .share-item:hover {{ transform: scale(1.05); border-color: #4a9eff; }}
-        .share-item .icon {{ font-size: 18px; display: block; }}
-        .share-item .label {{ font-size: 7px; color: #c0d8e8; margin-top: 1px; }}
-        .dash-card {{ background: rgba(255,255,255,0.04); border-radius: 10px; padding: 10px; text-align: center; cursor: pointer; border: 1px solid rgba(255,255,255,0.06); transition: 0.25s; }}
-        .dash-card:hover {{ transform: scale(1.03); border-color: #4a9eff; }}
-        .dash-card .icon {{ font-size: 20px; }}
-        .dash-card .label {{ color: #c0d8e8; font-size: 9px; margin-top: 2px; }}
-        .stat-box {{ background: rgba(255,255,255,0.04); border-radius: 8px; padding: 6px; text-align: center; }}
-        .stat-box .num {{ font-size: 16px; font-weight: 700; color: #4a9eff; }}
-        .stat-box .num.gold {{ color: #b8a84a; }}
-        .stat-box .num.green {{ color: #4ecdc4; }}
-        .stat-box .num.red {{ color: #ff6b6b; }}
-        .stat-box .label {{ font-size: 7px; color: #8aa3b5; }}
-        .bank-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }}
-        .bank-item {{ background: rgba(255,255,255,0.04); border-radius: 12px; padding: 10px; text-align: center; border: 1px solid rgba(255,255,255,0.06); cursor: pointer; transition: 0.25s; }}
-        .bank-item:hover {{ transform: scale(1.03); border-color: #4a9eff; }}
-        .bank-item .logo {{ font-size: 22px; display: block; }}
-        .bank-item .name {{ font-size: 10px; color: #b8a84a; font-weight: 600; }}
-        .bank-item .account {{ font-size: 11px; color: #fff; font-weight: 700; letter-spacing: 1px; margin-top: 2px; display: flex; align-items: center; justify-content: center; gap: 6px; }}
-        .bank-item .copy-btn {{ background: rgba(255,255,255,0.1); border: none; color: #4a9eff; font-size: 12px; cursor: pointer; padding: 2px 6px; border-radius: 6px; }}
-        .bank-item .copy-btn:hover {{ background: rgba(74,158,255,0.2); }}
-        .bank-item .account-holder {{ font-size: 8px; color: #8aa3b5; margin-top: 2px; }}
-        .news-item {{ background: rgba(255,255,255,0.03); border-radius: 10px; padding: 8px 10px; margin-bottom: 5px; border-left: 3px solid #4a9eff; }}
-        .news-item .title {{ color: #b8a84a; font-weight: 600; font-size: 11px; }}
-        .news-item .desc {{ color: #c0d8e8; font-size: 10px; margin-top: 2px; }}
-        .compare-option {{ background: rgba(255,255,255,0.04); border-radius: 10px; padding: 6px 10px; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center; }}
-        .compare-option select {{ background: rgba(255,255,255,0.05); border: 1px solid #2b3a4a; border-radius: 8px; padding: 4px 8px; color: #fff; font-size: 10px; }}
-        .job-item {{ background: rgba(255,255,255,0.03); border-radius: 10px; padding: 8px; margin-bottom: 6px; border-left: 4px solid #4a9eff; }}
-        .job-item h3 {{ color: #fff; font-size: 12px; }}
-        .job-item p {{ color: #9bb0c0; font-size: 10px; }}
-        .tip-item {{ background: rgba(255,255,255,0.03); border-radius: 10px; padding: 8px; margin-bottom: 4px; }}
-        .tip-item .title {{ color: #b8a84a; font-size: 11px; font-weight: 600; }}
-        .tip-item .desc {{ color: #c0d8e8; font-size: 10px; margin-top: 2px; }}
-        .apply-form input, .apply-form select, .apply-form textarea {{ width: 100%; padding: 8px; margin-bottom: 6px; background: rgba(255,255,255,0.05); border: 1px solid #2b3a4a; border-radius: 8px; color: #fff; font-size: 11px; }}
-        .apply-form label {{ color: #c0d8e8; font-size: 10px; display: block; margin-bottom: 2px; }}
-        @media (max-width:420px){{.app-container{{border-radius:0;min-height:100vh;}}.bottom-nav{{border-radius:0;}}}}
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', system-ui, sans-serif; }
+        body { background: #0b1219; min-height: 100vh; display: flex; justify-content: center; align-items: center; padding: 12px; }
+        .app-container { max-width: 420px; width: 100%; min-height: 780px; background: #17212b; border-radius: 36px; box-shadow: 0 20px 60px rgba(0,0,0,0.8), 0 0 0 2px #2b3a4a inset; overflow: hidden; padding: 16px; position: relative; }
+        .header { text-align: center; padding-bottom: 12px; border-bottom: 1px solid #2b3a4a; margin-bottom: 12px; }
+        .header .top-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+        .header .lang-selector { display: flex; gap: 4px; }
+        .header .lang-selector button { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); color: #8aa3b5; padding: 3px 8px; border-radius: 12px; font-size: 10px; cursor: pointer; transition: 0.2s; }
+        .header .lang-selector button.active { background: rgba(74,158,255,0.2); border-color: #4a9eff; color: #4a9eff; }
+        .cctv-container { display: inline-block; position: relative; width: 40px; height: 40px; animation: spin 4s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .cctv-dome { width: 34px; height: 20px; background: linear-gradient(180deg,#4a9eff,#1a5a8a); border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%; position: absolute; top: 4px; left: 3px; box-shadow: 0 0 20px rgba(74,158,255,0.3); }
+        .cctv-dome::after { content: ''; width: 10px; height: 10px; background: radial-gradient(circle,#7ac7ff,#4a9eff); border-radius: 50%; position: absolute; top: 6px; left: 12px; box-shadow: inset 0 0 6px rgba(255,255,255,0.3); }
+        .cctv-base { width: 20px; height: 6px; background: linear-gradient(180deg,#2b3a4a,#1a2a3a); border-radius: 0 0 10px 10px; position: absolute; bottom: 4px; left: 10px; }
+        .cctv-red { width: 4px; height: 4px; background: #ff4444; border-radius: 50%; position: absolute; top: 2px; right: 6px; animation: blink 1s infinite; }
+        @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0.2;} }
+        .header h1 { font-size: 18px; font-weight: 700; background: linear-gradient(90deg,#4a9eff,#7ac7ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-top: 2px; }
+        .header .sub { font-size: 11px; color: #8aa3b5; }
+        .pages { flex: 1; overflow-y: auto; padding: 6px 0 70px; scroll-behavior: smooth; }
+        .page { display: none; animation: fadeSlide 0.3s ease; }
+        .page.active { display: block; }
+        @keyframes fadeSlide { 0% { opacity: 0; transform: translateY(12px); } 100% { opacity: 1; transform: translateY(0); } }
+        .page-title { font-size: 15px; font-weight: 600; color: #fff; display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+        .back-btn { background: rgba(255,255,255,0.08); border: none; color: #fff; font-size: 18px; padding: 2px 12px; border-radius: 30px; cursor: pointer; }
+        .menu-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 12px; }
+        .menu-btn { border-radius: 14px; padding: 10px 4px; text-align: center; font-size: 9px; font-weight: 500; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 4px 15px rgba(0,0,0,0.3); color: #e0edf5; border: none; }
+        .menu-btn:hover { transform: scale(1.06) translateY(-3px); box-shadow: 0 8px 25px rgba(0,0,0,0.5); }
+        .menu-btn:active { transform: scale(0.95); }
+        .menu-btn .icon { font-size: 22px; display: block; margin-bottom: 2px; }
+        .menu-btn:nth-child(1){background:linear-gradient(135deg,#2a3a4a,#1a2a3a);}
+        .menu-btn:nth-child(2){background:linear-gradient(135deg,#4a2a22,#3a1a12);}
+        .menu-btn:nth-child(3){background:linear-gradient(135deg,#4a3a1a,#3a2a0a);}
+        .menu-btn:nth-child(4){background:linear-gradient(135deg,#1a4a3a,#0a3a2a);}
+        .menu-btn:nth-child(5){background:linear-gradient(135deg,#3a2a5a,#2a1a4a);}
+        .menu-btn:nth-child(6){background:linear-gradient(135deg,#4a2a3a,#3a1a2a);}
+        .menu-btn:nth-child(7){background:linear-gradient(135deg,#4a3a1a,#3a2a0a);}
+        .menu-btn:nth-child(8){background:linear-gradient(135deg,#1a4a3a,#0a3a2a);}
+        .menu-btn:nth-child(9){background:linear-gradient(135deg,#2a3a5a,#1a2a4a);}
+        .menu-btn:nth-child(10){background:linear-gradient(135deg,#1a4a3a,#0a3a2a);}
+        .menu-btn:nth-child(11){background:linear-gradient(135deg,#4a2a1a,#3a1a0a);}
+        .menu-btn:nth-child(12){background:linear-gradient(135deg,#2a4a4a,#1a3a3a);}
+        .menu-btn:nth-child(13){background:linear-gradient(135deg,#4a4a1a,#3a3a0a);}
+        .menu-btn:nth-child(14){background:linear-gradient(135deg,#4a2a2a,#3a1a1a);}
+        .menu-btn:nth-child(15){background:linear-gradient(135deg,#1a2a4a,#0a1a3a);}
+        .menu-btn:nth-child(16){background:linear-gradient(135deg,#3a2a5a,#2a1a4a);}
+        .menu-btn:nth-child(17){background:linear-gradient(135deg,#4a2a3a,#3a1a2a);}
+        .section-title { color: #b8a84a; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+        .product-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+        .product-card { background: rgba(255,255,255,0.04); border-radius: 14px; overflow: hidden; border: 1px solid rgba(255,255,255,0.06); transition: 0.25s; cursor: pointer; }
+        .product-card:hover { transform: translateY(-4px); box-shadow: 0 8px 30px rgba(0,0,0,0.4); }
+        .product-card .promo-img { width: 100%; height: 100px; background: linear-gradient(135deg,#1a2a3a,#2a3a4a); display: flex; align-items: center; justify-content: center; font-size: 40px; color: #b8a84a; }
+        .product-card .info { padding: 6px 8px; text-align: center; }
+        .product-card .name { font-weight: 600; font-size: 11px; color: #b8a84a; }
+        .product-card .desc { font-size: 9px; color: #8aa3b5; margin: 2px 0 4px; }
+        .product-card .ask-btn { width: 100%; padding: 4px; border: none; border-radius: 8px; color: #fff; font-weight: 600; font-size: 10px; cursor: pointer; transition: 0.2s; background: linear-gradient(135deg,#4a3a1a,#3a2a0a); }
+        .product-card .ask-btn:hover { transform: scale(1.03); box-shadow: 0 4px 15px rgba(74,58,26,0.3); }
+        .channel-link { padding: 8px; background: rgba(74,158,255,0.08); border-radius: 12px; text-align: center; border: 1px dashed #4a9eff; margin-bottom: 10px; cursor: pointer; }
+        .channel-link a { color: #4a9eff; font-weight: 600; text-decoration: none; font-size: 12px; }
+        .promo-banner { background: linear-gradient(135deg,#4a2a2a,#3a1a1a); border-radius: 12px; padding: 10px 14px; margin-top: 10px; display: flex; align-items: center; gap: 10px; border: 1px solid #4a3a1a; cursor: pointer; }
+        .promo-banner .text { font-size: 12px; color: #c0d8e8; flex: 1; font-weight: 600; }
+        .promo-banner .text strong { color: #b8a84a; }
+        .promo-banner .link { color: #4a9eff; font-size: 11px; text-decoration: none; cursor: pointer; background: rgba(74,158,255,0.1); padding: 4px 12px; border-radius: 20px; font-weight: 600; transition: 0.2s; }
+        .promo-banner .link:hover { background: rgba(74,158,255,0.2); }
+        .bottom-nav { position: sticky; bottom: 0; background: rgba(15,26,36,0.92); backdrop-filter: blur(14px); border-top: 1px solid #2b3a4a; display: flex; justify-content: space-around; padding: 6px 0 12px; border-radius: 0 0 36px 36px; margin-top: 10px; }
+        .nav-item { color: #6a8a9e; font-size: 8px; text-align: center; cursor: pointer; padding: 2px 6px; border-radius: 30px; transition: 0.2s; }
+        .nav-item.active { color: #4a9eff; }
+        .nav-item .icon { font-size: 16px; display: block; }
+        .btn-primary { background: #4a9eff; border: none; border-radius: 30px; padding: 10px; color: #fff; font-weight: 600; font-size: 13px; width: 100%; cursor: pointer; transition: 0.2s; margin-top: 4px; }
+        .btn-primary:hover { background: #6ab0ff; }
+        .btn-primary.gold { background: #b8a84a; color: #1a1a2e; }
+        .btn-primary.gold:hover { background: #c8b85a; }
+        .modal { display: none; background: rgba(0,0,0,0.7); position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 100; justify-content: center; align-items: center; padding: 20px; }
+        .modal.show { display: flex; }
+        .modal .content { background: #1a2a3a; border-radius: 16px; padding: 20px; max-width: 380px; width: 100%; border: 1px solid #2b3a4a; }
+        .modal .content h3 { color: #b8a84a; font-size: 16px; margin-bottom: 12px; }
+        .modal .content p { color: #c0d8e8; font-size: 14px; line-height: 1.8; }
+        .modal .content .btn-close { background: rgba(255,255,255,0.08); border: none; border-radius: 30px; padding: 10px; color: #fff; font-weight: 600; font-size: 13px; width: 100%; cursor: pointer; margin-top: 12px; transition: 0.2s; }
+        .social-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 6px; }
+        .social-item { background: rgba(255,255,255,0.04); border-radius: 12px; padding: 10px 4px; text-align: center; cursor: pointer; border: 1px solid rgba(255,255,255,0.06); transition: 0.25s; }
+        .social-item:hover { transform: scale(1.05); border-color: #4a9eff; }
+        .social-item .icon { font-size: 24px; display: block; }
+        .social-item .label { font-size: 8px; color: #c0d8e8; margin-top: 2px; }
+        .share-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 4px; margin-top: 6px; }
+        .share-item { background: rgba(255,255,255,0.04); border-radius: 10px; padding: 8px 2px; text-align: center; cursor: pointer; border: 1px solid rgba(255,255,255,0.06); transition: 0.25s; }
+        .share-item:hover { transform: scale(1.05); border-color: #4a9eff; }
+        .share-item .icon { font-size: 18px; display: block; }
+        .share-item .label { font-size: 7px; color: #c0d8e8; margin-top: 1px; }
+        .dash-card { background: rgba(255,255,255,0.04); border-radius: 10px; padding: 10px; text-align: center; cursor: pointer; border: 1px solid rgba(255,255,255,0.06); transition: 0.25s; }
+        .dash-card:hover { transform: scale(1.03); border-color: #4a9eff; }
+        .dash-card .icon { font-size: 20px; }
+        .dash-card .label { color: #c0d8e8; font-size: 9px; margin-top: 2px; }
+        .stat-box { background: rgba(255,255,255,0.04); border-radius: 8px; padding: 6px; text-align: center; }
+        .stat-box .num { font-size: 16px; font-weight: 700; color: #4a9eff; }
+        .stat-box .num.gold { color: #b8a84a; }
+        .stat-box .num.green { color: #4ecdc4; }
+        .stat-box .num.red { color: #ff6b6b; }
+        .stat-box .label { font-size: 7px; color: #8aa3b5; }
+        .bank-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
+        .bank-item { background: rgba(255,255,255,0.04); border-radius: 12px; padding: 10px; text-align: center; border: 1px solid rgba(255,255,255,0.06); cursor: pointer; transition: 0.25s; }
+        .bank-item:hover { transform: scale(1.03); border-color: #4a9eff; }
+        .bank-item .logo { font-size: 22px; display: block; }
+        .bank-item .name { font-size: 10px; color: #b8a84a; font-weight: 600; }
+        .bank-item .account { font-size: 11px; color: #fff; font-weight: 700; letter-spacing: 1px; margin-top: 2px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+        .bank-item .copy-btn { background: rgba(255,255,255,0.1); border: none; color: #4a9eff; font-size: 12px; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+        .bank-item .copy-btn:hover { background: rgba(74,158,255,0.2); }
+        .bank-item .account-holder { font-size: 8px; color: #8aa3b5; margin-top: 2px; }
+        .news-item { background: rgba(255,255,255,0.03); border-radius: 10px; padding: 8px 10px; margin-bottom: 5px; border-left: 3px solid #4a9eff; }
+        .news-item .title { color: #b8a84a; font-weight: 600; font-size: 11px; }
+        .news-item .desc { color: #c0d8e8; font-size: 10px; margin-top: 2px; }
+        .compare-option { background: rgba(255,255,255,0.04); border-radius: 10px; padding: 6px 10px; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center; }
+        .compare-option select { background: rgba(255,255,255,0.05); border: 1px solid #2b3a4a; border-radius: 8px; padding: 4px 8px; color: #fff; font-size: 10px; }
+        .job-item { background: rgba(255,255,255,0.03); border-radius: 10px; padding: 8px; margin-bottom: 6px; border-left: 4px solid #4a9eff; }
+        .job-item h3 { color: #fff; font-size: 12px; }
+        .job-item p { color: #9bb0c0; font-size: 10px; }
+        .tip-item { background: rgba(255,255,255,0.03); border-radius: 10px; padding: 8px; margin-bottom: 4px; }
+        .tip-item .title { color: #b8a84a; font-size: 11px; font-weight: 600; }
+        .tip-item .desc { color: #c0d8e8; font-size: 10px; margin-top: 2px; }
+        .apply-form input, .apply-form select, .apply-form textarea { width: 100%; padding: 8px; margin-bottom: 6px; background: rgba(255,255,255,0.05); border: 1px solid #2b3a4a; border-radius: 8px; color: #fff; font-size: 11px; }
+        .apply-form label { color: #c0d8e8; font-size: 10px; display: block; margin-bottom: 2px; }
+        @media (max-width:420px){.app-container{border-radius:0;min-height:100vh;}.bottom-nav{border-radius:0;}}
     </style>
 </head>
 <body>
 <div class="app-container">
-    <!-- HEADER -->
     <div class="header">
         <div class="top-row">
             <div class="cctv-container"><div class="cctv-dome"></div><div class="cctv-base"></div><div class="cctv-red"></div></div>
@@ -302,8 +365,6 @@ def get_webapp_html():
         <h1 id="mainTitle">ሻሎም ቴክኖሎጂ</h1>
         <div class="sub" id="mainSub">✨ የእርስዎ የደህንነት አጋር ✨</div>
     </div>
-
-    <!-- PAGES -->
     <div class="pages" id="pagesContainer">
         <!-- HOME -->
         <div class="page active" id="page-home">
@@ -325,17 +386,17 @@ def get_webapp_html():
                 <div class="menu-btn" onclick="openEmployeeLogin()"><span class="icon">👔</span><span data-key="m15">ቲም ሊደር</span></div>
                 <div class="menu-btn" onclick="openEmployeeLogin()"><span class="icon">👤</span><span data-key="m16">ሰራተኛ</span></div>
             </div>
-            <div class="promo-banner" onclick="window.open('{telegram_channel}','_blank')">
+            <div class="promo-banner" onclick="window.open('https://t.me/MarshalomTech','_blank')">
                 <span style="font-size:18px;">🔥</span>
                 <span class="text" id="promoText">✨ <strong>አዲስ የፀሐይ ካሜራ</strong> 15% ቅናሽ!</span>
                 <span class="link">ተመልከት</span>
             </div>
             <div style="margin-top:6px; text-align:center; color:#6a8a9e; font-size:9px;">
-                📢 ቻናላችን: <a href="{telegram_channel}" target="_blank" style="color:#4a9eff; text-decoration:none;">@MarshalomTech</a>
+                📢 ቻናላችን: <a href="https://t.me/MarshalomTech" target="_blank" style="color:#4a9eff; text-decoration:none;">@MarshalomTech</a>
             </div>
         </div>
 
-        <!-- PRODUCTS - 4 PROMOTIONS -->
+        <!-- PRODUCTS -->
         <div class="page" id="page-products">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button><span id="pTitle">🛍️ ምርቶች</span></div>
             <div class="product-grid">
@@ -372,12 +433,12 @@ def get_webapp_html():
                     </div>
                 </div>
             </div>
-            <div class="promo-banner" onclick="window.open('{telegram_channel}','_blank')">
+            <div class="promo-banner" onclick="window.open('https://t.me/MarshalomTech','_blank')">
                 <span style="font-size:16px;">🔥</span>
                 <span class="text" style="font-size:11px;">✨ <strong>ሁሉም ምርቶች 10% ቅናሽ!</strong> ዛሬ ብቻ!</span>
                 <span class="link">ተመልከት</span>
             </div>
-            <div class="channel-link" onclick="window.open('{telegram_channel}','_blank')">📢 <a href="{telegram_channel}" target="_blank">ተጨማሪ ምርቶች ለማየት ቻናላችንን ይቀላቀሉ</a> 📢</div>
+            <div class="channel-link" onclick="window.open('https://t.me/MarshalomTech','_blank')">📢 <a href="https://t.me/MarshalomTech" target="_blank">ተጨማሪ ምርቶች ለማየት ቻናላችንን ይቀላቀሉ</a> 📢</div>
         </div>
 
         <!-- CALL -->
@@ -399,12 +460,12 @@ def get_webapp_html():
         <div class="page" id="page-social">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>🌐 <span id="socialTitle">ማህበራዊ ሚዲያ</span></div>
             <div class="social-grid">
-                <div class="social-item" onclick="openSocial('{youtube}')"><span class="icon">▶️</span><span class="label">YouTube</span></div>
-                <div class="social-item" onclick="openSocial('{tiktok}')"><span class="icon">🎵</span><span class="label">TikTok</span></div>
-                <div class="social-item" onclick="openSocial('{facebook}')"><span class="icon">📘</span><span class="label">Facebook</span></div>
-                <div class="social-item" onclick="openSocial('{instagram}')"><span class="icon">📸</span><span class="label">Instagram</span></div>
-                <div class="social-item" onclick="openSocial('{telegram_channel}')"><span class="icon">✈️</span><span class="label">ቴሌግራም</span></div>
-                <div class="social-item" onclick="openSocial('{website}')"><span class="icon">🌐</span><span class="label">ድር ጣቢያ</span></div>
+                <div class="social-item" onclick="openSocial('https://youtube.com/@ShalomTechnology')"><span class="icon">▶️</span><span class="label">YouTube</span></div>
+                <div class="social-item" onclick="openSocial('https://www.tiktok.com/@marshalomcctv')"><span class="icon">🎵</span><span class="label">TikTok</span></div>
+                <div class="social-item" onclick="openSocial('https://facebook.com/share/1YEeCpFBgp')"><span class="icon">📘</span><span class="label">Facebook</span></div>
+                <div class="social-item" onclick="openSocial('https://instagram.com/marshalom')"><span class="icon">📸</span><span class="label">Instagram</span></div>
+                <div class="social-item" onclick="openSocial('https://t.me/MarshalomTech')"><span class="icon">✈️</span><span class="label">ቴሌግራም</span></div>
+                <div class="social-item" onclick="openSocial('https://marshalom.com')"><span class="icon">🌐</span><span class="label">ድር ጣቢያ</span></div>
             </div>
         </div>
 
@@ -423,11 +484,11 @@ def get_webapp_html():
                 <div class="share-item" onclick="shareBot('TikTok')"><span class="icon">🎵</span><span class="label">TikTok</span></div>
                 <div class="share-item" onclick="shareBot('LinkedIn')"><span class="icon">💼</span><span class="label">LinkedIn</span></div>
                 <div class="share-item" onclick="shareBot('Twitter')"><span class="icon">🐦</span><span class="label">Twitter</span></div>
-                <div class="share-item" onclick="copyText('{telegram_channel}')"><span class="icon">🔗</span><span class="label">ሊንክ</span></div>
+                <div class="share-item" onclick="copyText('https://t.me/MarshalomTech')"><span class="icon">🔗</span><span class="label">ሊንክ</span></div>
             </div>
         </div>
 
-        <!-- NEWS - FUNNY JOKES -->
+        <!-- NEWS - አስቂኝ (ስለ ልወም እና ናኦድ) -->
         <div class="page" id="page-news">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>📰 <span id="newsTitle">ዜና</span></div>
             <div class="news-item"><div class="title">😄 ማርሻሎም ዛሬ ምሽት ለልወም እራት አዘጋጀ!</div><div class="desc">ልወም በጣም ደስ አላት! ማርሻሎም ጥሩ ባለቤት ነው! ❤️</div></div>
@@ -461,7 +522,7 @@ def get_webapp_html():
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>💼 <span id="jobsTitle">ክፍት ስራ</span></div>
             <div class="job-item"><h3>📹 የCCTV ተከላ ቴክኒሽያን</h3><p>አዲስ አበባ — ልምድ ያለው</p></div>
             <div class="job-item"><h3>💻 የኔትወርክ መሐንዲስ</h3><p>ለድርጅቶች ኔትወርክ መጫን</p></div>
-            <div class="promo-banner" style="margin-top:6px;" onclick="window.open('{telegram_channel}','_blank')">
+            <div class="promo-banner" style="margin-top:6px;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
                 <span style="font-size:14px;">🔥</span>
                 <span class="text" style="font-size:10px;">✨ <strong>አሁን ተቀላቀሉ!</strong> አዳዲስ ስራዎች በቅርቡ!</span>
                 <span class="link">ተመልከት</span>
@@ -501,7 +562,7 @@ def get_webapp_html():
                 <div style="font-size:13px; color:#c0d8e8;">ቅናሽ ለ <strong>C92 MAX</strong></div>
                 <button class="btn-primary gold" style="margin-top:6px;" onclick="alert('🎁 ቅናሽ ተቀብለዋል! አድሚን ያግኙ!')">ቅናሹን አግኙ</button>
             </div>
-            <div class="promo-banner" style="margin-top:6px;" onclick="window.open('{telegram_channel}','_blank')">
+            <div class="promo-banner" style="margin-top:6px;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
                 <span style="font-size:14px;">🔥</span>
                 <span class="text" style="font-size:10px;">✨ <strong>ሌሎች ቅናሾች:</strong> ሁሉም ምርቶች 10% ቅናሽ!</span>
                 <span class="link">ተመልከት</span>
@@ -537,55 +598,55 @@ def get_webapp_html():
         <!-- PROMO - 12 PROMOTIONS -->
         <div class="page" id="page-promo">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>📢 <span id="promoTitle">ማስታወቂያ</span></div>
-            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #4a9eff; margin-bottom:4px; cursor:pointer;" onclick="window.open('{telegram_channel}','_blank')">
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #4a9eff; margin-bottom:4px; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
                 <div style="color:#b8a84a; font-weight:600; font-size:11px;">📢 የሳምንቱ ቅናሽ!</div>
                 <div style="color:#c0d8e8; font-size:11px;">ሁሉም CCTV ካሜራዎች 10% ቅናሽ!</div>
             </div>
-            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #b8a84a; margin-bottom:4px; cursor:pointer;" onclick="window.open('{telegram_channel}','_blank')">
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #b8a84a; margin-bottom:4px; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
                 <div style="color:#b8a84a; font-weight:600; font-size:11px;">🎉 አዲስ ምርት - Stellar AOV!</div>
                 <div style="color:#c0d8e8; font-size:11px;">አዲሱ የፀሐይ ካሜራ አሁን ተገኝቷል!</div>
             </div>
-            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #ff6b6b; margin-bottom:4px; cursor:pointer;" onclick="window.open('{telegram_channel}','_blank')">
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #ff6b6b; margin-bottom:4px; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
                 <div style="color:#ff6b6b; font-weight:600; font-size:11px;">🔥 ፍጥነት!</div>
                 <div style="color:#c0d8e8; font-size:11px;">ለመጀመሪያ 10 ደንበኞች 20% ቅናሽ!</div>
             </div>
-            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #4ecdc4; margin-bottom:4px; cursor:pointer;" onclick="window.open('{telegram_channel}','_blank')">
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #4ecdc4; margin-bottom:4px; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
                 <div style="color:#4ecdc4; font-weight:600; font-size:11px;">🎁 የልደት ቅናሽ!</div>
                 <div style="color:#c0d8e8; font-size:11px;">በልደት ወር ሁሉም ምርቶች 15% ቅናሽ!</div>
             </div>
-            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #a29bfe; margin-bottom:4px; cursor:pointer;" onclick="window.open('{telegram_channel}','_blank')">
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #a29bfe; margin-bottom:4px; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
                 <div style="color:#a29bfe; font-weight:600; font-size:11px;">🎥 አዲስ ካሜራማን!</div>
                 <div style="color:#c0d8e8; font-size:11px;">ሙያዊ ካሜራማን አሁን ተገኝቷል!</div>
             </div>
-            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #fd79a8; margin-bottom:4px; cursor:pointer;" onclick="window.open('{telegram_channel}','_blank')">
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #fd79a8; margin-bottom:4px; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
                 <div style="color:#fd79a8; font-weight:600; font-size:11px;">📸 ባለሙያ ፎቶግራፍ!</div>
                 <div style="color:#c0d8e8; font-size:11px;">ለሁሉም ዝግጅቶች ፎቶግራፍ አገልግሎት!</div>
             </div>
-            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #55efc4; margin-bottom:4px; cursor:pointer;" onclick="window.open('{telegram_channel}','_blank')">
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #55efc4; margin-bottom:4px; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
                 <div style="color:#55efc4; font-weight:600; font-size:11px;">🌙 የሌሊት ካሜራ!</div>
                 <div style="color:#c0d8e8; font-size:11px;">በጨለማ ውስጥ ግልጽ ምስል!</div>
             </div>
-            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #fab1a0; margin-bottom:4px; cursor:pointer;" onclick="window.open('{telegram_channel}','_blank')">
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #fab1a0; margin-bottom:4px; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
                 <div style="color:#fab1a0; font-weight:600; font-size:11px;">🎬 ቪዲዮ ቀረጻ!</div>
                 <div style="color:#c0d8e8; font-size:11px;">ከፍተኛ ጥራት ቪዲዮ ቀረጻ አገልግሎት!</div>
             </div>
-            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #81ecec; margin-bottom:4px; cursor:pointer;" onclick="window.open('{telegram_channel}','_blank')">
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #81ecec; margin-bottom:4px; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
                 <div style="color:#81ecec; font-weight:600; font-size:11px;">🌐 የደህንነት ስርዓት!</div>
                 <div style="color:#c0d8e8; font-size:11px;">ሙሉ የደህንነት ስርዓት ተከላ!</div>
             </div>
-            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #ffeaa7; margin-bottom:4px; cursor:pointer;" onclick="window.open('{telegram_channel}','_blank')">
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #ffeaa7; margin-bottom:4px; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
                 <div style="color:#ffeaa7; font-weight:600; font-size:11px;">💡 የብርሃን ስርዓት!</div>
                 <div style="color:#c0d8e8; font-size:11px;">አውቶማቲክ የብርሃን ስርዓት ተከላ!</div>
             </div>
-            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #74b9ff; margin-bottom:4px; cursor:pointer;" onclick="window.open('{telegram_channel}','_blank')">
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #74b9ff; margin-bottom:4px; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
                 <div style="color:#74b9ff; font-weight:600; font-size:11px;">📱 ስማርት ቤት!</div>
                 <div style="color:#c0d8e8; font-size:11px;">ሙሉ የስማርት ቤት ስርዓት!</div>
             </div>
-            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #ff7675; cursor:pointer;" onclick="window.open('{telegram_channel}','_blank')">
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #ff7675; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
                 <div style="color:#ff7675; font-weight:600; font-size:11px;">🎁 የክረምት ቅናሽ!</div>
                 <div style="color:#c0d8e8; font-size:11px;">ሁሉም ምርቶች 20% ቅናሽ!</div>
             </div>
-            <div style="margin-top:6px; background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; text-align:center; cursor:pointer;" onclick="window.open('{telegram_channel}','_blank')">
+            <div style="margin-top:6px; background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; text-align:center; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
                 <div style="color:#b8a84a; font-size:11px;">📢 <strong>ተጨማሪ ማስታወቂያዎች ለማየት ቻናላችንን ይቀላቀሉ!</strong></div>
             </div>
         </div>
@@ -780,8 +841,8 @@ def get_webapp_html():
 {js_code}
 
 // ===== LANGUAGE SWITCHER =====
-var translations = {{
-    'am': {{
+var translations = {
+    'am': {
         'title': 'ሻሎም ቴክኖሎጂ',
         'sub': '✨ የእርስዎ የደህንነት አጋር ✨',
         'm0':'ምርቶች','m1':'ይደውሉ','m2':'ማህበራዊ','m3':'ማጋሪያ','m4':'ዜና','m5':'ንጽጽር','m6':'ክፍት ስራ','m7':'ቅናሽ','m8':'ረዳት','m9':'ድጋፍ','m10':'ማስታወቂያ','m11':'ምክሮች','m12':'ባንክ','m14':'አድሚን','m15':'ቲም ሊደር','m16':'ሰራተኛ',
@@ -801,8 +862,8 @@ var translations = {{
         'promoTitle':'ማስታወቂያ',
         'tipsTitle':'ምክሮች',
         'banksTitle':'ባንክ ሂሳቦች'
-    }},
-    'en': {{
+    },
+    'en': {
         'title': 'Shalom Technology',
         'sub': '✨ Your Security Partner ✨',
         'm0':'Products','m1':'Call','m2':'Social','m3':'Share','m4':'News','m5':'Compare','m6':'Jobs','m7':'Discount','m8':'Assistant','m9':'Support','m10':'Promo','m11':'Tips','m12':'Banks','m14':'Admin','m15':'Team Leader','m16':'Employee',
@@ -822,26 +883,26 @@ var translations = {{
         'promoTitle':'Promo',
         'tipsTitle':'Tips',
         'banksTitle':'Banks'
-    }}
-}};
+    }
+};
 
-function switchLanguage(lang) {{
+function switchLanguage(lang) {
     document.querySelectorAll('#langSelector button').forEach(b=>b.classList.remove('active'));
     document.querySelector('#langSelector button[data-lang="'+lang+'"]').classList.add('active');
     var t = translations[lang];
     if(!t) return;
     document.getElementById('mainTitle').textContent = t.title;
     document.getElementById('mainSub').textContent = t.sub;
-    document.querySelectorAll('#page-home .menu-btn [data-key]').forEach(el=>{{
+    document.querySelectorAll('#page-home .menu-btn [data-key]').forEach(el=>{
         var key = el.dataset.key;
         if(t[key]) el.textContent = t[key];
-    }});
+    });
     document.getElementById('promoText').innerHTML = t.promo;
     document.getElementById('promoLink').textContent = t.promoLink;
-    document.querySelectorAll('.bottom-nav .nav-item [data-key]').forEach(el=>{{
+    document.querySelectorAll('.bottom-nav .nav-item [data-key]').forEach(el=>{
         var key = el.dataset.key;
         if(t[key]) el.textContent = t[key];
-    }});
+    });
     document.getElementById('pTitle').textContent = t.pTitle;
     document.getElementById('callTitle').textContent = t.callTitle;
     document.getElementById('socialTitle').textContent = t.socialTitle;
@@ -855,21 +916,106 @@ function switchLanguage(lang) {{
     document.getElementById('promoTitle').textContent = t.promoTitle;
     document.getElementById('tipsTitle').textContent = t.tipsTitle;
     document.getElementById('banksTitle').textContent = t.banksTitle;
-}}
+}
 </script>
 </body>
 </html>
     """
+    
+    # ፓስዎርዶችን በJavaScript ውስጥ ተካ
+    html = html_template.replace('ADMIN_PASSWORD', ADMIN_PASSWORD)
+    html = html_template.replace('TEAM_PASSWORD', TEAM_PASSWORD)
+    html = html_template.replace('EMP_PASSWORD', EMP_PASSWORD)
+    
+    # የJavaScript ኮድን ተካ
+    html = html.replace('{js_code}', js_code)
+    
+    return html
 
-    # ሁሉንም ተለዋዋጮች በ .format() በመጠቀም እንተካለን
-    return html_template.format(
-        admin_password=ADMIN_PASSWORD,
-        team_password=TEAM_PASSWORD,
-        emp_password=EMP_PASSWORD,
-        youtube=social_links['youtube'],
-        tiktok=social_links['tiktok'],
-        facebook=social_links['facebook'],
-        instagram=social_links['instagram'],
-        telegram_channel=social_links['telegram'],
-        website=social_links['website']
-    )
+# ===== የWebApp ገጽ =====
+@app.route('/webapp')
+def webapp():
+    return render_template_string(get_webapp_html())
+
+# ===== ቴሌግራም Webhook =====
+@app.route('/', methods=['GET', 'POST'])
+def index():
+    if request.method == 'GET':
+        return "Marshalom Bot is running! 🤖"
+    
+    if not TELEGRAM_TOKEN:
+        return "TELEGRAM_TOKEN not set", 500
+
+    try:
+        data = request.get_json(silent=True)
+        if not data or 'message' not in data:
+            return "OK"
+
+        msg = data['message']
+        chat_id = msg['chat']['id']
+        text = msg.get('text', '')
+        user = msg.get('from', {})
+        name = user.get('first_name', '') + (' ' + user.get('last_name', '') if user.get('last_name') else '')
+
+        # ===== /start =====
+        if text == '/start':
+            webapp_url = f"{BASE_URL}/webapp"
+            requests.post(f"{TELEGRAM_URL}/sendMessage", json={
+                'chat_id': chat_id,
+                'text': "🌟 እንኳን ደህና መጡ ወደ Shalom Technology!\n\n📱 አፕሊኬሽናችንን ለመክፈት ከታች ያለውን ቁልፍ ይጫኑ!",
+                'reply_markup': {
+                    'inline_keyboard': [[{
+                        'text': '🚀 አፕ ክፈት',
+                        'web_app': {'url': webapp_url}
+                    }]]
+                }
+            })
+            return "OK"
+
+        # ===== AI ምላሽ =====
+        if DEEPSEEK_API_KEY:
+            try:
+                response = requests.post(
+                    "https://api.deepseek.com/chat/completions",
+                    json={
+                        "model": "deepseek-chat",
+                        "messages": [
+                            {"role": "system", "content": "አንተ Marshalom AI ነህ — የ Shalom Technology ረዳት። በአማርኛ መልስ ስጥ።"},
+                            {"role": "user", "content": text}
+                        ],
+                        "max_tokens": 300
+                    },
+                    headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
+                    timeout=25
+                )
+                if response.status_code == 200:
+                    ai_reply = response.json()["choices"][0]["message"]["content"]
+                    requests.post(f"{TELEGRAM_URL}/sendMessage", json={
+                        'chat_id': chat_id,
+                        'text': f"🤖 *Marshalom AI:*\n\n{ai_reply}",
+                        'parse_mode': 'Markdown'
+                    })
+                else:
+                    requests.post(f"{TELEGRAM_URL}/sendMessage", json={
+                        'chat_id': chat_id,
+                        'text': "⏳ እባክዎ ይጠብቁ! በቅርቡ ምላሽ ያገኛሉ።"
+                    })
+            except:
+                requests.post(f"{TELEGRAM_URL}/sendMessage", json={
+                    'chat_id': chat_id,
+                    'text': "⏳ እባክዎ ይጠብቁ! በቅርቡ ምላሽ ያገኛሉ።"
+                })
+        else:
+            requests.post(f"{TELEGRAM_URL}/sendMessage", json={
+                'chat_id': chat_id,
+                'text': "🌟 ማርሻሎም የቴክኖሎጂ ረዳት\n\nሰላም! መልእክትዎን ስላደረሱን እናመሰግናለን። በቅርቡ ምላሽ ያገኛሉ።"
+            })
+
+        return "OK"
+    except Exception as e:
+        print(f"Error: {e}")
+        return "OK"
+
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
