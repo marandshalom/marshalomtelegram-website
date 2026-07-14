@@ -20,18 +20,23 @@ DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
 CHANNEL_ID = os.environ.get("CHANNEL_ID", "@MarshalomTech")
 BOT_USERNAME = os.environ.get("BOT_USERNAME", "marshalom_bot")
 DATABASE_URL = os.environ.get("DATABASE_URL")
-BASE_URL = os.environ.get("BASE_URL", "https://lwam-bot.onrender.com")
+BASE_URL = os.environ.get("BASE_URL", "https://marshalomtelegram-website.onrender.com")
 
 TELEGRAM_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 ETHIOPIA_TZ = pytz.timezone("Africa/Addis_Ababa")
 
-# ===== ዳታቤዝ (Postgres) =====
+# ===== ቋሚ አድሚን ፓስዎርድ (ከEnvironment Variable) =====
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
+
+# ===== ዳታቤዝ =====
 def get_db_connection():
+    if not DATABASE_URL:
+        return None
     return psycopg2.connect(DATABASE_URL, sslmode='require')
 
 def init_db():
     if not DATABASE_URL:
-        print("⚠️ DATABASE_URL not set - storage disabled")
+        print("⚠️ DATABASE_URL not set")
         return
     try:
         conn = get_db_connection()
@@ -117,61 +122,24 @@ def init_db():
     except Exception as e:
         print(f"DB init error: {e}")
 
-# ===== ቋንቋ ትርጉሞች =====
-def get_translations(lang='am'):
-    translations = {
-        'am': {
-            'title': 'ሻሎም ቴክኖሎጂ',
-            'sub': '✨ የእርስዎ የደህንነት አጋር ✨',
-            'menu': ['🛍️ ምርቶች', '📞 ይደውሉ', '🌐 ማህበራዊ', '👥 ማጋሪያ', '📰 ዜና', '⚖️ ንጽጽር', '💼 ክፍት ስራ', '🎁 ቅናሽ', '🤖 ረዳት', '🛡️ ድጋፍ', '📢 ማስታወቂያ', '💡 ምክሮች', '🏦 ባንክ', '🔑 መግቢያ', '⚙️ አድሚን', '👔 ቲም ሊደር', '👤 ሰራተኛ'],
-            'promo': '✨ <strong>አዲስ የፀሐይ ካሜራ</strong> 15% ቅናሽ!',
-            'products': ['🌟 አዲስ የፀሐይ ካሜራ', '4ጂ፣ 360°፣ ባትሪ'],
-            'call': ['ይደውሉ', 'ኢትዮ ቴሌኮም', 'ሳፋሪኮም'],
-            'social': ['ማህበራዊ ሚዲያ'],
-            'share': ['ማጋሪያ', '✨ እንኳን ደህና መጡ ወደ ማርሻሎም! ✨'],
-            'news': ['ዜና', '📸 አዲስ ካሜራ ፊት ብቻ ሳይሆን የእግር ንዝረትን ይለያል!', '🚀 በአሜሪካ የሰማይ ላይ ካሜራ ተፈተሸ', '😂 አስቂኝ — "777" የማርሻሎም ምስጢር!'],
-            'compare': ['ንጽጽር'],
-            'jobs': ['ክፍት ስራ', '📹 የCCTV ተከላ ቴክኒሽያን', '💻 የኔትወርክ መሐንዲስ'],
-            'discount': ['ቅናሽ', 'እንኳን ደስ አለዎት!'],
-            'ai': ['ረዳት', '🌟 ማርሻሎም የቴክኖሎጂ ረዳት 🌟'],
-            'support': ['ድጋፍ', '24/7 ደንበኛ ድጋፍ'],
-            'banks': ['ባንክ'],
-            'login': ['መግቢያ', 'ለባለቤት፣ ቲም ሊደር እና ሰራተኞች'],
-            'admin': ['አድሚን', 'ማርሻሎም', '🚀 ባለቤት', 'ሙሉ የስርዓት ቁጥጥር'],
-            'teamleader': ['ቲም ሊደር', 'የናስ ሞላ', '🌟 የቡድን አስተዳደር'],
-            'employee': ['ሰራተኛ', 'አብይ አለሙ', 'CCTV ቴክኒሽያን']
-        },
-        'en': {
-            'title': 'Shalom Technology',
-            'sub': '✨ Your Security Partner ✨',
-            'menu': ['🛍️ Products', '📞 Call', '🌐 Social', '👥 Share', '📰 News', '⚖️ Compare', '💼 Jobs', '🎁 Discount', '🤖 Assistant', '🛡️ Support', '📢 Promo', '💡 Tips', '🏦 Banks', '🔑 Login', '⚙️ Admin', '👔 Team Leader', '👤 Employee'],
-            'promo': '✨ <strong>New Solar Camera</strong> 15% OFF!',
-            'products': ['🌟 New Solar Camera', '4G, 360°, Battery'],
-            'call': ['Call', 'Ethio Telecom', 'Safaricom'],
-            'social': ['Social Media'],
-            'share': ['Share', '✨ Welcome to Marshalom! ✨'],
-            'news': ['News', '📸 New Camera Detects Footstep Vibration!', '🚀 Sky Camera Tested in USA', '😂 Funny — "777" Marshalom\'s Secret!'],
-            'compare': ['Compare'],
-            'jobs': ['Jobs', '📹 CCTV Installation Technician', '💻 Network Engineer'],
-            'discount': ['Discount', 'Congratulations!'],
-            'ai': ['Assistant', '🌟 Marshalom Technology Assistant 🌟'],
-            'support': ['Support', '24/7 Customer Support'],
-            'banks': ['Banks'],
-            'login': ['Login', 'For Owner, Team Leader and Employees'],
-            'admin': ['Admin', 'Marshalom', '🚀 Owner', 'Full System Control'],
-            'teamleader': ['Team Leader', 'Yonas Mola', '🌟 Team Management'],
-            'employee': ['Employee', 'Abiy Alemu', 'CCTV Technician']
-        }
-    }
-    return translations.get(lang, translations['am'])
-
-# ===== የWebApp HTML ገጽ (ተስተካክሏል) =====
+# ===== የWebApp HTML ገጽ (ተሻሽሏል) =====
 def get_webapp_html(lang='am'):
-    t = get_translations(lang)
+    # ማህበራዊ ሚዲያ አገናኞች
+    social_links = {
+        'youtube': 'https://youtube.com/@ShalomTechnology',
+        'tiktok': 'https://tiktok.com/@shalomtech',
+        'facebook': 'https://facebook.com/share/1YEeCpFBgp',
+        'facebook_page': 'https://facebook.com/share/1YEeCpFBgp',
+        'instagram': 'https://instagram.com/marshalom',
+        'instagram2': 'https://instagram.com/codexafrica',
+        'telegram': 'https://t.me/MarshalomTech',
+        'telegram_personal': 'https://t.me/ethiopiansecuritycamera',
+        'website': 'https://marshalom.com',
+        'linkedin': '#'
+    }
     
-    # JavaScript እና CSS በተናጥል
-    js_code = """
-    function showPage(id) {
+    js_code = f"""
+    function showPage(id) {{
         document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
         document.getElementById(id).classList.add('active');
         document.getElementById('pagesContainer').scrollTop=0;
@@ -181,12 +149,34 @@ def get_webapp_html(lang='am'):
         else if(id==='page-ai') document.querySelector('.nav-item:nth-child(3)').classList.add('active');
         else if(id==='page-share') document.querySelector('.nav-item:nth-child(4)').classList.add('active');
         else if(id==='page-jobs') document.querySelector('.nav-item:nth-child(5)').classList.add('active');
-    }
-    function switchLanguage(lang) {
+    }}
+    function switchLanguage(lang) {{
         document.querySelectorAll('#langSelector button').forEach(b=>b.classList.remove('active'));
         document.querySelector('#langSelector button[data-lang=\"'+lang+'\"]').classList.add('active');
         window.location.href = '/webapp?lang='+lang;
-    }
+    }}
+    function openSocial(url) {{
+        window.open(url, '_blank');
+    }}
+    function openAdminLogin() {{
+        var pwd = prompt('🔑 የአድሚን የይለፍ ቃል ያስገቡ:');
+        if(pwd === '{ADMIN_PASSWORD}') {{
+            showPage('page-admin');
+        }} else if(pwd !== null) {{
+            alert('❌ የተሳሳተ የይለፍ ቃል!');
+        }}
+    }}
+    function openEmployeePage() {{
+        var user = prompt('👤 የተጠቃሚ ስም:');
+        var pwd = prompt('🔑 የይለፍ ቃል:');
+        if(user === 'teamleader' && pwd === 'team123') {{
+            showPage('page-teamleader');
+        }} else if(user === 'employee' && pwd === 'emp123') {{
+            showPage('page-employee');
+        }} else {{
+            alert('❌ የተሳሳተ መረጃ!');
+        }}
+    }}
     """
     
     html = f"""
@@ -195,7 +185,7 @@ def get_webapp_html(lang='am'):
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>{t['title']}</title>
+    <title>ሻሎም ቴክኖሎጂ</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', system-ui, sans-serif; }}
@@ -272,6 +262,11 @@ def get_webapp_html(lang='am'):
         .modal .content h3 {{ color: #b8a84a; font-size: 16px; margin-bottom: 12px; }}
         .modal .content p {{ color: #c0d8e8; font-size: 14px; line-height: 1.8; }}
         .modal .content .btn-close {{ background: rgba(255,255,255,0.08); border: none; border-radius: 30px; padding: 10px; color: #fff; font-weight: 600; font-size: 13px; width: 100%; cursor: pointer; margin-top: 12px; transition: 0.2s; }}
+        .social-grid {{ display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 6px; }}
+        .social-item {{ background: rgba(255,255,255,0.04); border-radius: 12px; padding: 10px 4px; text-align: center; cursor: pointer; border: 1px solid rgba(255,255,255,0.06); transition: 0.25s; }}
+        .social-item:hover {{ transform: scale(1.05); border-color: #4a9eff; }}
+        .social-item .icon {{ font-size: 24px; display: block; }}
+        .social-item .label {{ font-size: 8px; color: #c0d8e8; margin-top: 2px; }}
         @media (max-width:420px){{.app-container{{border-radius:0;min-height:100vh;}}.bottom-nav{{border-radius:0;}}}}
     </style>
 </head>
@@ -287,109 +282,114 @@ def get_webapp_html(lang='am'):
                 <button data-lang="or" onclick="switchLanguage('or')">ኦሮ</button>
             </div>
         </div>
-        <h1 id="mainTitle">{t['title']}</h1>
-        <div class="sub" id="mainSub">{t['sub']}</div>
+        <h1 id="mainTitle">ሻሎም ቴክኖሎጂ</h1>
+        <div class="sub" id="mainSub">✨ የእርስዎ የደህንነት አጋር ✨</div>
     </div>
     <div class="pages" id="pagesContainer">
+        <!-- HOME -->
         <div class="page active" id="page-home">
             <div class="menu-grid" id="menuGrid">
-                <div class="menu-btn" onclick="showPage('page-products')"><span class="icon">🛍️</span><span data-key="m0">{t['menu'][0]}</span></div>
-                <div class="menu-btn" onclick="showPage('page-call')"><span class="icon">📞</span><span data-key="m1">{t['menu'][1]}</span></div>
-                <div class="menu-btn" onclick="showPage('page-social')"><span class="icon">🌐</span><span data-key="m2">{t['menu'][2]}</span></div>
-                <div class="menu-btn" onclick="showPage('page-share')"><span class="icon">👥</span><span data-key="m3">{t['menu'][3]}</span></div>
-                <div class="menu-btn" onclick="showPage('page-news')"><span class="icon">📰</span><span data-key="m4">{t['menu'][4]}</span></div>
-                <div class="menu-btn" onclick="showPage('page-compare')"><span class="icon">⚖️</span><span data-key="m5">{t['menu'][5]}</span></div>
-                <div class="menu-btn" onclick="showPage('page-jobs')"><span class="icon">💼</span><span data-key="m6">{t['menu'][6]}</span></div>
-                <div class="menu-btn" onclick="showPage('page-discount')"><span class="icon">🎁</span><span data-key="m7">{t['menu'][7]}</span></div>
-                <div class="menu-btn" onclick="showPage('page-ai')"><span class="icon">🤖</span><span data-key="m8">{t['menu'][8]}</span></div>
-                <div class="menu-btn" onclick="showPage('page-support')"><span class="icon">🛡️</span><span data-key="m9">{t['menu'][9]}</span></div>
-                <div class="menu-btn" onclick="showPage('page-promo')"><span class="icon">📢</span><span data-key="m10">{t['menu'][10]}</span></div>
-                <div class="menu-btn" onclick="showPage('page-tips')"><span class="icon">💡</span><span data-key="m11">{t['menu'][11]}</span></div>
-                <div class="menu-btn" onclick="showPage('page-banks')"><span class="icon">🏦</span><span data-key="m12">{t['menu'][12]}</span></div>
-                <div class="menu-btn" onclick="showPage('page-login')"><span class="icon">🔑</span><span data-key="m13">{t['menu'][13]}</span></div>
-                <div class="menu-btn" onclick="showPage('page-admin')"><span class="icon">⚙️</span><span data-key="m14">{t['menu'][14]}</span></div>
-                <div class="menu-btn" onclick="showPage('page-teamleader')"><span class="icon">👔</span><span data-key="m15">{t['menu'][15]}</span></div>
-                <div class="menu-btn" onclick="showPage('page-employee')"><span class="icon">👤</span><span data-key="m16">{t['menu'][16]}</span></div>
+                <div class="menu-btn" onclick="showPage('page-products')"><span class="icon">🛍️</span><span data-key="m0">ምርቶች</span></div>
+                <div class="menu-btn" onclick="showPage('page-call')"><span class="icon">📞</span><span data-key="m1">ይደውሉ</span></div>
+                <div class="menu-btn" onclick="showPage('page-social')"><span class="icon">🌐</span><span data-key="m2">ማህበራዊ</span></div>
+                <div class="menu-btn" onclick="showPage('page-share')"><span class="icon">👥</span><span data-key="m3">ማጋሪያ</span></div>
+                <div class="menu-btn" onclick="showPage('page-news')"><span class="icon">📰</span><span data-key="m4">ዜና</span></div>
+                <div class="menu-btn" onclick="showPage('page-compare')"><span class="icon">⚖️</span><span data-key="m5">ንጽጽር</span></div>
+                <div class="menu-btn" onclick="showPage('page-jobs')"><span class="icon">💼</span><span data-key="m6">ክፍት ስራ</span></div>
+                <div class="menu-btn" onclick="showPage('page-discount')"><span class="icon">🎁</span><span data-key="m7">ቅናሽ</span></div>
+                <div class="menu-btn" onclick="showPage('page-ai')"><span class="icon">🤖</span><span data-key="m8">ረዳት</span></div>
+                <div class="menu-btn" onclick="showPage('page-support')"><span class="icon">🛡️</span><span data-key="m9">ድጋፍ</span></div>
+                <div class="menu-btn" onclick="showPage('page-promo')"><span class="icon">📢</span><span data-key="m10">ማስታወቂያ</span></div>
+                <div class="menu-btn" onclick="showPage('page-tips')"><span class="icon">💡</span><span data-key="m11">ምክሮች</span></div>
+                <div class="menu-btn" onclick="showPage('page-banks')"><span class="icon">🏦</span><span data-key="m12">ባንክ</span></div>
+                <div class="menu-btn" onclick="openAdminLogin()"><span class="icon">🔑</span><span data-key="m14">አድሚን</span></div>
+                <div class="menu-btn" onclick="openEmployeePage()"><span class="icon">👔</span><span data-key="m15">ቲም ሊደር</span></div>
+                <div class="menu-btn" onclick="openEmployeePage()"><span class="icon">👤</span><span data-key="m16">ሰራተኛ</span></div>
             </div>
             <div class="promo-banner">
                 <span style="font-size:18px;">🔥</span>
-                <span class="text" id="promoText">{t['promo']}</span>
+                <span class="text" id="promoText">✨ <strong>አዲስ የፀሐይ ካሜራ</strong> 15% ቅናሽ!</span>
                 <span class="link" onclick="alert('🔥 ወደ ፕሮሞሽን ገጽ ይወሰዳሉ!')">ተመልከት</span>
             </div>
             <div style="margin-top:6px; text-align:center; color:#6a8a9e; font-size:9px;">📢 ቻናላችን: <span style="color:#4a9eff;">@MarshalomTech</span></div>
         </div>
+        <!-- PRODUCTS -->
         <div class="page" id="page-products">
-            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button><span id="pTitle">🛍️ {t['menu'][0]}</span></div>
+            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button><span id="pTitle">🛍️ ምርቶች</span></div>
             <div class="product-grid">
                 <div class="product-card" style="grid-column: span 2;">
                     <div class="promo-img">⭐</div>
                     <div class="info">
-                        <div class="name" id="prod1_name">{t['products'][0]}</div>
-                        <div class="desc" id="prod1_desc">{t['products'][1]}</div>
+                        <div class="name" id="prod1_name">🌟 አዲስ የፀሐይ ካሜራ</div>
+                        <div class="desc" id="prod1_desc">4ጂ፣ 360°፣ ባትሪ</div>
                         <button class="ask-btn" onclick="alert('💬 ዋጋ ጥያቄ ተልኳል!')">💬 ዋጋ ጠይቁ</button>
                     </div>
                 </div>
             </div>
-            <div class="channel-link">📢 <a href="https://t.me/cctvcamera2018" target="_blank">ተጨማሪ ምርቶች ለማየት ቻናላችንን ይቀላቀሉ</a> 📢</div>
+            <div class="channel-link">📢 <a href="https://t.me/MarshalomTech" target="_blank">ተጨማሪ ምርቶች ለማየት ቻናላችንን ይቀላቀሉ</a> 📢</div>
         </div>
+        <!-- CALL -->
         <div class="page" id="page-call">
-            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>📞 <span id="callTitle">{t['call'][0]}</span></div>
+            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>📞 <span id="callTitle">ይደውሉ</span></div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:6px;">
                 <div style="background:rgba(255,255,255,0.04); border-radius:16px; padding:14px 10px; text-align:center; border:2px solid rgba(255,255,255,0.06); cursor:pointer;" onclick="alert('📞 ኢትዮ ቴሌኮም እየደወለ ነው...')">
                     <div style="font-size:14px; font-weight:700; color:#fff;">0931556590</div>
-                    <div style="font-size:9px; color:#8aa3b5;">{t['call'][1]}</div>
+                    <div style="font-size:9px; color:#8aa3b5;">ኢትዮ ቴሌኮም</div>
                 </div>
                 <div style="background:rgba(255,255,255,0.04); border-radius:16px; padding:14px 10px; text-align:center; border:2px solid rgba(255,255,255,0.06); cursor:pointer;" onclick="alert('📞 ሳፋሪኮም እየደወለ ነው...')">
                     <div style="font-size:14px; font-weight:700; color:#fff;">+251799556590</div>
-                    <div style="font-size:9px; color:#8aa3b5;">{t['call'][2]}</div>
+                    <div style="font-size:9px; color:#8aa3b5;">ሳፋሪኮም</div>
                 </div>
             </div>
         </div>
+        <!-- SOCIAL - በትክክለኛ አገናኞች! -->
         <div class="page" id="page-social">
-            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>🌐 <span id="socialTitle">{t['social'][0]}</span></div>
-            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-top:6px;">
-                <div style="background:rgba(255,255,255,0.04); border-radius:12px; padding:10px 4px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('🎵 TikTok ተከፈተ')"><span style="font-size:24px; display:block;">🎵</span><span style="font-size:8px; color:#c0d8e8;">TikTok</span></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:12px; padding:10px 4px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('▶️ YouTube ተከፈተ')"><span style="font-size:24px; display:block;">▶️</span><span style="font-size:8px; color:#c0d8e8;">YouTube</span></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:12px; padding:10px 4px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('📘 Facebook ተከፈተ')"><span style="font-size:24px; display:block;">📘</span><span style="font-size:8px; color:#c0d8e8;">Facebook</span></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:12px; padding:10px 4px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('📸 Instagram ተከፈተ')"><span style="font-size:24px; display:block;">📸</span><span style="font-size:8px; color:#c0d8e8;">Instagram</span></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:12px; padding:10px 4px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('💼 LinkedIn ተከፈተ')"><span style="font-size:24px; display:block;">💼</span><span style="font-size:8px; color:#c0d8e8;">LinkedIn</span></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:12px; padding:10px 4px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('🌐 ድር ጣቢያ ተከፈተ')"><span style="font-size:24px; display:block;">🌐</span><span style="font-size:8px; color:#c0d8e8;">www.marshalom.com</span></div>
+            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>🌐 <span id="socialTitle">ማህበራዊ ሚዲያ</span></div>
+            <div class="social-grid">
+                <div class="social-item" onclick="openSocial('{social_links['youtube']}')"><span class="icon">▶️</span><span class="label">YouTube</span></div>
+                <div class="social-item" onclick="openSocial('{social_links['tiktok']}')"><span class="icon">🎵</span><span class="label">TikTok</span></div>
+                <div class="social-item" onclick="openSocial('{social_links['facebook']}')"><span class="icon">📘</span><span class="label">Facebook</span></div>
+                <div class="social-item" onclick="openSocial('{social_links['instagram']}')"><span class="icon">📸</span><span class="label">Instagram</span></div>
+                <div class="social-item" onclick="openSocial('{social_links['telegram']}')"><span class="icon">✈️</span><span class="label">ቴሌግራም</span></div>
+                <div class="social-item" onclick="openSocial('{social_links['website']}')"><span class="icon">🌐</span><span class="label">ድር ጣቢያ</span></div>
             </div>
         </div>
+        <!-- SHARE -->
         <div class="page" id="page-share">
-            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>👥 <span id="shareTitle">{t['share'][0]}</span></div>
+            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>👥 <span id="shareTitle">ማጋሪያ</span></div>
             <div style="background:rgba(74,158,255,0.04); border-radius:12px; padding:10px; margin-top:8px; border:1px solid rgba(74,158,255,0.06); font-size:11px; color:#c0d8e8; line-height:1.6;">
-                <div style="color:#b8a84a; font-weight:700; font-size:13px; text-align:center;">{t['share'][1]}</div>
+                <div style="color:#b8a84a; font-weight:700; font-size:13px; text-align:center;">✨ እንኳን ደህና መጡ ወደ ማርሻሎም! ✨</div>
                 <span>ይህንን ቦት ለጓደኞችዎ ያጋሩ!</span>
             </div>
             <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:4px; margin-top:6px;">
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:8px 2px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('📤 WhatsApp ተከፈተ')"><span style="font-size:18px; display:block;">💬</span><span style="font-size:7px; color:#c0d8e8;">WhatsApp</span></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:8px 2px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('📤 Facebook ተከፈተ')"><span style="font-size:18px; display:block;">📘</span><span style="font-size:7px; color:#c0d8e8;">Facebook</span></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:8px 2px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('📤 Telegram ተከፈተ')"><span style="font-size:18px; display:block;">✈️</span><span style="font-size:7px; color:#c0d8e8;">Telegram</span></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:8px 2px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('📤 Instagram ተከፈተ')"><span style="font-size:18px; display:block;">📸</span><span style="font-size:7px; color:#c0d8e8;">Instagram</span></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:8px 2px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('📤 TikTok ተከፈተ')"><span style="font-size:18px; display:block;">🎵</span><span style="font-size:7px; color:#c0d8e8;">TikTok</span></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:8px 2px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('📤 LinkedIn ተከፈተ')"><span style="font-size:18px; display:block;">💼</span><span style="font-size:7px; color:#c0d8e8;">LinkedIn</span></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:8px 2px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('📤 Twitter ተከፈተ')"><span style="font-size:18px; display:block;">🐦</span><span style="font-size:7px; color:#c0d8e8;">Twitter</span></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:8px 2px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('🔗 ሊንክ ተቀድቷል')"><span style="font-size:18px; display:block;">🔗</span><span style="font-size:7px; color:#c0d8e8;">ሊንክ</span></div>
+                <div class="share-item" onclick="alert('📤 WhatsApp ተከፈተ')"><span style="font-size:18px; display:block;">💬</span><span style="font-size:7px; color:#c0d8e8;">WhatsApp</span></div>
+                <div class="share-item" onclick="alert('📤 Facebook ተከፈተ')"><span style="font-size:18px; display:block;">📘</span><span style="font-size:7px; color:#c0d8e8;">Facebook</span></div>
+                <div class="share-item" onclick="alert('📤 Telegram ተከፈተ')"><span style="font-size:18px; display:block;">✈️</span><span style="font-size:7px; color:#c0d8e8;">Telegram</span></div>
+                <div class="share-item" onclick="alert('📤 Instagram ተከፈተ')"><span style="font-size:18px; display:block;">📸</span><span style="font-size:7px; color:#c0d8e8;">Instagram</span></div>
+                <div class="share-item" onclick="alert('📤 TikTok ተከፈተ')"><span style="font-size:18px; display:block;">🎵</span><span style="font-size:7px; color:#c0d8e8;">TikTok</span></div>
+                <div class="share-item" onclick="alert('📤 LinkedIn ተከፈተ')"><span style="font-size:18px; display:block;">💼</span><span style="font-size:7px; color:#c0d8e8;">LinkedIn</span></div>
+                <div class="share-item" onclick="alert('📤 Twitter ተከፈተ')"><span style="font-size:18px; display:block;">🐦</span><span style="font-size:7px; color:#c0d8e8;">Twitter</span></div>
+                <div class="share-item" onclick="alert('🔗 ሊንክ ተቀድቷል')"><span style="font-size:18px; display:block;">🔗</span><span style="font-size:7px; color:#c0d8e8;">ሊንክ</span></div>
             </div>
         </div>
+        <!-- NEWS, COMPARE, JOBS, DISCOUNT, AI, SUPPORT, PROMO, TIPS, BANKS (ተመሳሳይ ናቸው) -->
         <div class="page" id="page-news">
-            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>📰 <span id="newsTitle">{t['news'][0]}</span></div>
+            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>📰 <span id="newsTitle">ዜና</span></div>
             <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px 10px; margin-bottom:5px; border-left:3px solid #4a9eff;">
-                <div style="color:#b8a84a; font-weight:600; font-size:11px;">{t['news'][1]}</div>
-                <div style="color:#c0d8e8; font-size:10px; margin-top:2px;">{t['news'][1]} 🦶</div>
+                <div style="color:#b8a84a; font-weight:600; font-size:11px;">📸 አዲስ ካሜራ ፊት ብቻ ሳይሆን የእግር ንዝረትን ይለያል!</div>
+                <div style="color:#c0d8e8; font-size:10px; margin-top:2px;">የቻይና ኩባንያ አዲስ AI ካሜራ አስገባ — ሰዎችን በእግራቸው እንቅስቃሴ ይለያል! 🦶</div>
             </div>
             <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px 10px; margin-bottom:5px; border-left:3px solid #4a9eff;">
-                <div style="color:#b8a84a; font-weight:600; font-size:11px;">{t['news'][2]}</div>
-                <div style="color:#c0d8e8; font-size:10px; margin-top:2px;">{t['news'][2]} 🌍</div>
+                <div style="color:#b8a84a; font-weight:600; font-size:11px;">🚀 በአሜሪካ የሰማይ ላይ ካሜራ ተፈተሸ</div>
+                <div style="color:#c0d8e8; font-size:10px; margin-top:2px;">ሰዎችን ከ5 ኪሎ ሜትር ርቀት የሚያውቅ ካሜራ ተፈተሸ! 🌍</div>
             </div>
-            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px 10px; margin-bottom:5px; border-left:3px solid #ff6b6b;">
-                <div style="color:#ff6b6b; font-weight:600; font-size:11px;">{t['news'][3]}</div>
-                <div style="color:#c0d8e8; font-size:10px; margin-top:2px;">{t['news'][3]} 🤫😂</div>
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px 10px; border-left:3px solid #ff6b6b;">
+                <div style="color:#ff6b6b; font-weight:600; font-size:11px;">😂 አስቂኝ — "777" የማርሻሎም ምስጢር!</div>
+                <div style="color:#c0d8e8; font-size:10px; margin-top:2px;">ማርሻሎም ለቦቱ ፓስዎርድ "777" አድርጎታል! እስካሁን ምስጢሩን አላወቀም! 🤫😂</div>
             </div>
         </div>
         <div class="page" id="page-compare">
-            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>⚖️ <span id="compareTitle">{t['compare'][0]}</span></div>
+            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>⚖️ <span id="compareTitle">ንጽጽር</span></div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px;">
                 <div style="background:rgba(255,255,255,0.04); border-radius:12px; padding:10px; border:1px solid rgba(255,255,255,0.06);">
                     <div style="color:#b8a84a; font-weight:600; font-size:12px; text-align:center;">CALUS VC9</div>
@@ -409,41 +409,41 @@ def get_webapp_html(lang='am'):
             <div style="text-align:center; font-size:18px; font-weight:900; color:#ff6b6b; padding:6px 0;">⚡ VS ⚡</div>
         </div>
         <div class="page" id="page-jobs">
-            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>💼 <span id="jobsTitle">{t['jobs'][0]}</span></div>
+            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>💼 <span id="jobsTitle">ክፍት ስራ</span></div>
             <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; margin-bottom:6px; border-left:4px solid #4a9eff;">
-                <h3 style="color:#fff; font-size:12px;">{t['jobs'][1]}</h3>
+                <h3 style="color:#fff; font-size:12px;">📹 የCCTV ተከላ ቴክኒሽያን</h3>
                 <p style="color:#9bb0c0; font-size:10px;">አዲስ አበባ — ልምድ ያለው</p>
             </div>
             <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; margin-bottom:6px; border-left:4px solid #b8a84a;">
-                <h3 style="color:#fff; font-size:12px;">{t['jobs'][2]}</h3>
+                <h3 style="color:#fff; font-size:12px;">💻 የኔትወርክ መሐንዲስ</h3>
                 <p style="color:#9bb0c0; font-size:10px;">ለድርጅቶች ኔትወርክ መጫን</p>
             </div>
             <button class="btn-primary" onclick="alert('📝 ማመልከቻ ቅጽ ተከፈተ')">📝 አሁን አመልክት</button>
         </div>
         <div class="page" id="page-discount">
-            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>🎁 <span id="discountTitle">{t['discount'][0]}</span></div>
+            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>🎁 <span id="discountTitle">ቅናሽ</span></div>
             <div style="background:linear-gradient(135deg,#4a3a1a,#3a2a0a); border-radius:16px; padding:20px 12px; text-align:center; color:#b8a84a; border:1px solid #4a3a1a;">
                 <div style="font-size:30px;">🎉</div>
-                <div style="font-size:15px; font-weight:700;">{t['discount'][1]}</div>
+                <div style="font-size:15px; font-weight:700;">እንኳን ደስ አለዎት!</div>
                 <div style="font-size:28px; font-weight:900;">15%</div>
                 <div style="font-size:13px; color:#c0d8e8;">ቅናሽ ለ <strong>C92 MAX</strong></div>
                 <button class="btn-primary" style="margin-top:6px; background:#4a3a1a; color:#b8a84a;" onclick="alert('🎁 ቅናሽ ተቀብለዋል!')">ቅናሹን አግኙ</button>
             </div>
         </div>
         <div class="page" id="page-ai">
-            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>🤖 <span id="aiTitle">{t['ai'][0]}</span></div>
+            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>🤖 <span id="aiTitle">ረዳት</span></div>
             <div style="background:rgba(255,255,255,0.03); border-radius:14px; padding:12px 10px; border:1px solid rgba(255,215,0,0.06);">
-                <div style="color:#b8a84a; font-size:14px; font-weight:700; text-align:center;">{t['ai'][1]}</div>
+                <div style="color:#b8a84a; font-size:14px; font-weight:700; text-align:center;">🌟 ማርሻሎም የቴክኖሎጂ ረዳት 🌟</div>
                 <div style="color:#c0d8e8; font-size:11px; line-height:1.6; margin-top:4px;">ሰላም! መልእክትዎን ስላደረሱን እናመሰግናለን። 🙏<br>አሁን ላይ እጅግ በጣም ብዙ ጥያቄዎችን በማስተናገድ ላይ ስለሆንን፣ ትክክለኛ ምላሽ ለእርስዎ ለመስጠት ፍቃድ በመጠበቅ ላይ እገኛለሁ። ⏳<br>አትጨነቁ! መልእክትዎ በአስተማማኝ ሁኔታ ተይዟል። 🤝✨</div>
                 <div style="background:rgba(255,0,0,0.06); border-left:4px solid #ff4444; padding:5px; border-radius:5px; margin-top:5px; font-size:10px; color:#ffaaaa;"><strong>⚠️ አስቸኳይ ከሆነ:</strong> "አስቸኳይ" ብለው ይጻፉ። ወደ ማርሻሎም ይላካል! 📞</div>
                 <button class="btn-primary" style="margin-top:6px; background:transparent; border:1px solid #4a9eff; color:#4a9eff;" onclick="alert('📨 አስቸኳይ መልእክት ተልኳል!')">📨 አስቸኳይ ላክ</button>
             </div>
         </div>
         <div class="page" id="page-support">
-            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>🛡️ <span id="supportTitle">{t['support'][0]}</span></div>
+            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>🛡️ <span id="supportTitle">ድጋፍ</span></div>
             <div style="text-align:center;">
                 <div style="font-size:32px;">🛡️</div>
-                <p style="color:#c0d8e8; font-size:13px; font-weight:600;">{t['support'][1]}</p>
+                <p style="color:#c0d8e8; font-size:13px; font-weight:600;">24/7 ደንበኛ ድጋፍ</p>
                 <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-top:6px;">
                     <div style="background:rgba(255,255,255,0.04); border-radius:12px; padding:10px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('📞 ስልክ እየደወለ ነው...')"><span style="font-size:28px; display:block;">📞</span><span style="font-size:9px; color:#c0d8e8;">ስልክ</span><span style="font-size:8px; color:#8aa3b5;">0931556590</span></div>
                     <div style="background:rgba(255,255,255,0.04); border-radius:12px; padding:10px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('💬 ዋትሳፕ ተከፈተ')"><span style="font-size:28px; display:block;">💬</span><span style="font-size:9px; color:#c0d8e8;">ዋትሳፕ</span><span style="font-size:8px; color:#8aa3b5;">+251799556590</span></div>
@@ -453,7 +453,7 @@ def get_webapp_html(lang='am'):
             </div>
         </div>
         <div class="page" id="page-promo">
-            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>📢 <span id="promoTitle">{t['menu'][10]}</span></div>
+            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>📢 <span id="promoTitle">ማስታወቂያ</span></div>
             <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #4a9eff; margin-bottom:4px;">
                 <div style="color:#b8a84a; font-weight:600; font-size:11px;">📢 የሳምንቱ ቅናሽ!</div>
                 <div style="color:#c0d8e8; font-size:11px;">ሁሉም CCTV ካሜራዎች 10% ቅናሽ!</div>
@@ -464,7 +464,7 @@ def get_webapp_html(lang='am'):
             </div>
         </div>
         <div class="page" id="page-tips">
-            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>💡 <span id="tipsTitle">{t['menu'][11]}</span></div>
+            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>💡 <span id="tipsTitle">ምክሮች</span></div>
             <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; margin-bottom:4px;">
                 <div style="color:#b8a84a; font-size:11px;">💡 ምክር 1</div>
                 <div style="color:#c0d8e8; font-size:11px;">ካሜራ ሲጭኑ የፀሐይ ብርሃን ወደሚያገኝ ቦታ ይጫኑ!</div>
@@ -475,7 +475,7 @@ def get_webapp_html(lang='am'):
             </div>
         </div>
         <div class="page" id="page-banks">
-            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>🏦 <span id="banksTitle">{t['banks'][0]}</span></div>
+            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>🏦 <span id="banksTitle">ባንክ</span></div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:6px;">
                 <div style="background:rgba(255,255,255,0.04); border-radius:12px; padding:10px; text-align:center; border:1px solid rgba(255,255,255,0.06);"><span style="font-size:22px; display:block;">🏦</span><div style="font-size:10px; color:#b8a84a; font-weight:600;">ንግድ ባንክ</div><div style="font-size:11px; color:#fff; font-weight:700; letter-spacing:1px; margin-top:2px;">1000134567890</div></div>
                 <div style="background:rgba(255,255,255,0.04); border-radius:12px; padding:10px; text-align:center; border:1px solid rgba(255,255,255,0.06);"><span style="font-size:22px; display:block;">🏦</span><div style="font-size:10px; color:#b8a84a; font-weight:600;">አዋሽ ባንክ</div><div style="font-size:11px; color:#fff; font-weight:700; letter-spacing:1px; margin-top:2px;">2000245678901</div></div>
@@ -483,23 +483,14 @@ def get_webapp_html(lang='am'):
                 <div style="background:rgba(255,255,255,0.04); border-radius:12px; padding:10px; text-align:center; border:1px solid rgba(255,255,255,0.06);"><span style="font-size:22px; display:block;">🏦</span><div style="font-size:10px; color:#b8a84a; font-weight:600;">አብይ ባንክ</div><div style="font-size:11px; color:#fff; font-weight:700; letter-spacing:1px; margin-top:2px;">4000456789013</div></div>
             </div>
         </div>
-        <div class="page" id="page-login">
-            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>🔑 <span id="loginTitle">{t['login'][0]}</span></div>
-            <div style="background:rgba(255,255,255,0.03); border-radius:16px; padding:16px 12px; border:1px solid rgba(74,158,255,0.1);">
-                <div style="text-align:center; font-size:28px; margin-bottom:4px;">🔐</div>
-                <div style="color:#c0d8e8; font-size:12px; text-align:center; margin-bottom:6px;">{t['login'][1]}</div>
-                <input type="text" placeholder="Username" style="width:100%; padding:10px; margin-bottom:8px; background:rgba(255,255,255,0.05); border:1px solid #2b3a4a; border-radius:10px; color:#fff; font-size:13px;">
-                <input type="password" placeholder="Password" style="width:100%; padding:10px; margin-bottom:8px; background:rgba(255,255,255,0.05); border:1px solid #2b3a4a; border-radius:10px; color:#fff; font-size:13px;">
-                <button class="btn-primary" onclick="alert('🔓 መግቢያ ተሳካ!')">🔓 ግባ</button>
-            </div>
-        </div>
+        <!-- ADMIN -->
         <div class="page" id="page-admin">
-            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>⚙️ <span id="adminTitle">{t['admin'][0]}</span></div>
+            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>⚙️ አድሚን</div>
             <div style="background:rgba(74,158,255,0.06); border-radius:14px; padding:12px; text-align:center; border:1px solid rgba(74,158,255,0.06); margin-bottom:8px;">
                 <span style="font-size:36px; display:block;">👑</span>
-                <div style="font-size:16px; font-weight:700; color:#fff;">{t['admin'][1]}</div>
-                <div style="font-size:10px; color:#b8a84a;">{t['admin'][2]}</div>
-                <div style="font-size:9px; color:#8aa3b5;">{t['admin'][3]}</div>
+                <div style="font-size:16px; font-weight:700; color:#fff;">ማርሻሎም</div>
+                <div style="font-size:10px; color:#b8a84a;">🚀 ባለቤት</div>
+                <div style="font-size:9px; color:#8aa3b5;">ሙሉ የስርዓት ቁጥጥር</div>
             </div>
             <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:4px; margin-bottom:6px;">
                 <div style="background:rgba(255,255,255,0.04); border-radius:8px; padding:6px; text-align:center;"><div style="font-size:16px; font-weight:700; color:#4a9eff;">24</div><div style="font-size:7px; color:#8aa3b5;">ዛሬ ጥያቄ</div></div>
@@ -510,24 +501,25 @@ def get_webapp_html(lang='am'):
                 <div style="background:rgba(255,255,255,0.04); border-radius:8px; padding:6px; text-align:center;"><div style="font-size:16px; font-weight:700; color:#b8a84a;">10</div><div style="font-size:7px; color:#8aa3b5;">ካሜራዎች</div></div>
             </div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:10px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('📊 ስታቲስቲክስ ተከፈተ')"><span style="font-size:20px;">📊</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ስታቲስቲክስ</div></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:10px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('🛍️ ምርቶች ተከፈተ')"><span style="font-size:20px;">🛍️</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ምርቶች</div></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:10px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('👥 ደንበኞች ተከፈተ')"><span style="font-size:20px;">👥</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ደንበኞች</div></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:10px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('➕ ሰራተኛ ጨምር ተከፈተ')"><span style="font-size:20px;">➕</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ሰራተኛ ጨምር</div></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:10px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('📋 ሰራተኞች ተከፈተ')"><span style="font-size:20px;">📋</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ሰራተኞች</div></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:10px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('🏦 ባንክ ተከፈተ')"><span style="font-size:20px;">🏦</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ባንክ</div></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:10px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('🎨 ማበጀት ተከፈተ')"><span style="font-size:20px;">🎨</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ማበጀት</div></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:10px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('📢 ማስታወቂያ ተከፈተ')"><span style="font-size:20px;">📢</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ማስታወቂያ</div></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:10px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('📹 ካሜራዎች ተከፈተ')"><span style="font-size:20px;">📹</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ካሜራዎች</div></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:10px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('🔧 ሲስተም ተከፈተ')"><span style="font-size:20px;">🔧</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ሲስተም</div></div>
+                <div class="dash-card" onclick="alert('📊 ስታቲስቲክስ ተከፈተ')"><span style="font-size:20px;">📊</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ስታቲስቲክስ</div></div>
+                <div class="dash-card" onclick="alert('🛍️ ምርቶች ተከፈተ')"><span style="font-size:20px;">🛍️</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ምርቶች</div></div>
+                <div class="dash-card" onclick="alert('👥 ደንበኞች ተከፈተ')"><span style="font-size:20px;">👥</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ደንበኞች</div></div>
+                <div class="dash-card" onclick="alert('➕ ሰራተኛ ጨምር ተከፈተ')"><span style="font-size:20px;">➕</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ሰራተኛ ጨምር</div></div>
+                <div class="dash-card" onclick="alert('📋 ሰራተኞች ተከፈተ')"><span style="font-size:20px;">📋</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ሰራተኞች</div></div>
+                <div class="dash-card" onclick="alert('🏦 ባንክ ተከፈተ')"><span style="font-size:20px;">🏦</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ባንክ</div></div>
+                <div class="dash-card" onclick="alert('🎨 ማበጀት ተከፈተ')"><span style="font-size:20px;">🎨</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ማበጀት</div></div>
+                <div class="dash-card" onclick="alert('📢 ማስታወቂያ ተከፈተ')"><span style="font-size:20px;">📢</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ማስታወቂያ</div></div>
+                <div class="dash-card" onclick="alert('📹 ካሜራዎች ተከፈተ')"><span style="font-size:20px;">📹</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ካሜራዎች</div></div>
+                <div class="dash-card" onclick="alert('🔧 ሲስተም ተከፈተ')"><span style="font-size:20px;">🔧</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ሲስተም</div></div>
             </div>
         </div>
+        <!-- TEAM LEADER -->
         <div class="page" id="page-teamleader">
-            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>👔 <span id="tlTitle">{t['teamleader'][0]}</span></div>
+            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>👔 ቲም ሊደር</div>
             <div style="background:rgba(74,158,255,0.06); border-radius:14px; padding:12px; text-align:center; border:1px solid rgba(74,158,255,0.06); margin-bottom:8px;">
                 <span style="font-size:36px; display:block;">👔</span>
-                <div style="font-size:16px; font-weight:700; color:#fff;">{t['teamleader'][1]}</div>
-                <div style="font-size:10px; color:#b8a84a;">{t['teamleader'][2]}</div>
+                <div style="font-size:16px; font-weight:700; color:#fff;">የናስ ሞላ</div>
+                <div style="font-size:10px; color:#b8a84a;">🌟 የቡድን አስተዳደር</div>
                 <div style="font-size:9px; color:#8aa3b5;">የእርስዎ የደህንነት አጋር</div>
             </div>
             <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:4px; margin-bottom:6px;">
@@ -536,14 +528,14 @@ def get_webapp_html(lang='am'):
                 <div style="background:rgba(255,255,255,0.04); border-radius:8px; padding:6px; text-align:center;"><div style="font-size:16px; font-weight:700; color:#b8a84a;">4</div><div style="font-size:7px; color:#8aa3b5;">በመሄድ</div></div>
             </div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:10px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('👤 ሰራተኞች ተከፈተ')"><span style="font-size:20px;">👤</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ሰራተኞች</div><div style="font-size:14px; font-weight:700; color:#4a9eff;">5</div></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:10px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('📋 ስራ መመደብ ተከፈተ')"><span style="font-size:20px;">📋</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ስራ መመደብ</div></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:10px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('📊 ሪፖርት 1 ተከፈተ')"><span style="font-size:20px;">📊</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ሪፖርት 1</div></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:10px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('📈 ሪፖርት 2 ተከፈተ')"><span style="font-size:20px;">📈</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ሪፖርት 2</div></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:10px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('🔑 የይለፍ ቃል ማመንጨት ተከፈተ')"><span style="font-size:20px;">🔑</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ፓስዎርድ አመንጭ</div></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:10px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('⚠️ ማስጠንቀቂያ ተከፈተ')"><span style="font-size:20px;">⚠️</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ማስጠንቀቂያ</div></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:10px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('🚫 ማባረር ተከፈተ')"><span style="font-size:20px;">🚫</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ማባረር</div></div>
-                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:10px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="alert('📝 መልእክት ላክ ተከፈተ')"><span style="font-size:20px;">📝</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">መልእክት ላክ</div></div>
+                <div class="dash-card" onclick="alert('👤 ሰራተኞች ተከፈተ')"><span style="font-size:20px;">👤</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ሰራተኞች</div><div style="font-size:14px; font-weight:700; color:#4a9eff;">5</div></div>
+                <div class="dash-card" onclick="alert('📋 ስራ መመደብ ተከፈተ')"><span style="font-size:20px;">📋</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ስራ መመደብ</div></div>
+                <div class="dash-card" onclick="alert('📊 ሪፖርት 1 ተከፈተ')"><span style="font-size:20px;">📊</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ሪፖርት 1</div></div>
+                <div class="dash-card" onclick="alert('📈 ሪፖርት 2 ተከፈተ')"><span style="font-size:20px;">📈</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ሪፖርት 2</div></div>
+                <div class="dash-card" onclick="alert('🔑 የይለፍ ቃል ማመንጨት ተከፈተ')"><span style="font-size:20px;">🔑</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ፓስዎርድ አመንጭ</div></div>
+                <div class="dash-card" onclick="alert('⚠️ ማስጠንቀቂያ ተከፈተ')"><span style="font-size:20px;">⚠️</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ማስጠንቀቂያ</div></div>
+                <div class="dash-card" onclick="alert('🚫 ማባረር ተከፈተ')"><span style="font-size:20px;">🚫</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">ማባረር</div></div>
+                <div class="dash-card" onclick="alert('📝 መልእክት ላክ ተከፈተ')"><span style="font-size:20px;">📝</span><div style="color:#c0d8e8; font-size:9px; margin-top:2px;">መልእክት ላክ</div></div>
             </div>
             <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; margin-top:6px;">
                 <div style="color:#b8a84a; font-weight:600; font-size:11px;">📋 የቡድን ስራዎች</div>
@@ -553,12 +545,13 @@ def get_webapp_html(lang='am'):
                 <div style="color:#c0d8e8; font-size:10px; padding:2px 0;">🛠️ የኔትወርክ ጥገና <span style="float:right; color:#b8a84a;">⏳ በመሄድ</span></div>
             </div>
         </div>
+        <!-- EMPLOYEE -->
         <div class="page" id="page-employee">
-            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>👤 <span id="empTitle">{t['employee'][0]}</span></div>
+            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>👤 ሰራተኛ</div>
             <div style="background:rgba(74,158,255,0.06); border-radius:14px; padding:12px; text-align:center; border:1px solid rgba(74,158,255,0.06); margin-bottom:8px;">
                 <span style="font-size:36px; display:block;">👤</span>
-                <div style="font-size:16px; font-weight:700; color:#fff;">{t['employee'][1]}</div>
-                <div style="font-size:10px; color:#b8a84a;">{t['employee'][2]}</div>
+                <div style="font-size:16px; font-weight:700; color:#fff;">አብይ አለሙ</div>
+                <div style="font-size:10px; color:#b8a84a;">CCTV ቴክኒሽያን</div>
                 <div style="font-size:9px; color:#8aa3b5;">⭐ ⭐ ⭐ ⭐ ⭐ (4.8)</div>
             </div>
             <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:5px; margin-bottom:6px;">
@@ -567,7 +560,7 @@ def get_webapp_html(lang='am'):
                 <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:8px; text-align:center;"><div style="font-size:16px; font-weight:700; color:#b8a84a;">3</div><div style="font-size:7px; color:#8aa3b5;">በመሄድ</div></div>
             </div>
             <div style="background:rgba(255,255,255,0.03); border-radius:8px; padding:8px; margin-bottom:4px;">
-                <div style="display:flex; justify-content:space-between; color:#c0d8e8; font-size:10px; padding:2px 0;"><span style="color:#8aa3b5;">ስራ</span><span>{t['employee'][2]}</span></div>
+                <div style="display:flex; justify-content:space-between; color:#c0d8e8; font-size:10px; padding:2px 0;"><span style="color:#8aa3b5;">ስራ</span><span>CCTV ቴክኒሽያን</span></div>
                 <div style="display:flex; justify-content:space-between; color:#c0d8e8; font-size:10px; padding:2px 0;"><span style="color:#8aa3b5;">ቦነስ</span><span style="color:#4ecdc4;">2,000 ብር</span></div>
                 <div style="display:flex; justify-content:space-between; color:#c0d8e8; font-size:10px; padding:2px 0;"><span style="color:#8aa3b5;">ማስጠንቀቂያ</span><span style="color:#4ecdc4;">የለም</span></div>
             </div>
