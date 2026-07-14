@@ -1,10 +1,7 @@
 from flask import Flask, request, jsonify, render_template_string
 import requests
 import os
-import random
 import json
-from datetime import datetime
-import pytz
 
 app = Flask(__name__)
 
@@ -13,97 +10,143 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 OWNER_CHAT_ID = os.environ.get("OWNER_CHAT_ID")
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
 BASE_URL = os.environ.get("BASE_URL", "https://marshalomtelegram-website.onrender.com")
-DATABASE_URL = os.environ.get("DATABASE_URL")
 
-# ===== ፓስዎርዶች (ከRender ENV) =====
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "marshalom777")
-TEAM_PASSWORD = os.environ.get("TEAM_PASSWORD", "team777")
-EMP_PASSWORD = os.environ.get("EMP_PASSWORD", "emp777")
+# ===== ፓስዎርዶች ከRender ENV ብቻ! (GitHub ላይ አይታዩም) =====
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+TEAM_PASSWORD = os.environ.get("TEAM_PASSWORD")
+EMP_PASSWORD = os.environ.get("EMP_PASSWORD")
+
+# ነባሪ እሴቶች (ከENV ካልተገኙ)
+if not ADMIN_PASSWORD:
+    ADMIN_PASSWORD = "marshalom777"
+if not TEAM_PASSWORD:
+    TEAM_PASSWORD = "team777"
+if not EMP_PASSWORD:
+    EMP_PASSWORD = "emp777"
 
 TELEGRAM_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 
-# ===== የWebApp HTML (ሙሉ የተሻሻለ) =====
+# ===== ማመልከቻ መላክ =====
+@app.route('/submit-application', methods=['POST'])
+def submit_application():
+    data = request.get_json()
+    name = data.get('name', '')
+    phone = data.get('phone', '')
+    email = data.get('email', '')
+    
+    requests.post(f"{TELEGRAM_URL}/sendMessage", json={
+        'chat_id': OWNER_CHAT_ID,
+        'text': f"📝 **አዲስ ማመልከቻ!**\n\n👤 ስም: {name}\n📱 ስልክ: {phone}\n📧 ኢሜይል: {email}"
+    })
+    return jsonify({"ok": True})
+
+# ===== አስቸኳይ መልእክት =====
+@app.route('/send-urgent', methods=['POST'])
+def send_urgent():
+    data = request.get_json()
+    msg = data.get('message', '')
+    requests.post(f"{TELEGRAM_URL}/sendMessage", json={
+        'chat_id': OWNER_CHAT_ID,
+        'text': f"🚨 **አስቸኳይ መልእክት**\n\n{msg}"
+    })
+    return jsonify({"ok": True})
+
+# ===== የዋጋ ጥያቄ =====
+@app.route('/ask-price', methods=['POST'])
+def ask_price():
+    data = request.get_json()
+    product = data.get('product', '')
+    requests.post(f"{TELEGRAM_URL}/sendMessage", json={
+        'chat_id': OWNER_CHAT_ID,
+        'text': f"💰 **የዋጋ ጥያቄ**\n\n📦 ምርት: {product}"
+    })
+    return jsonify({"ok": True})
+
+# ===== የWebApp ገጽ =====
+@app.route('/webapp')
+def webapp():
+    return render_template_string(get_webapp_html())
+
+# ===== ቴሌግራም Webhook =====
+@app.route('/', methods=['GET', 'POST'])
+def index():
+    if request.method == 'GET':
+        return "Marshalom Bot is running! 🤖"
+    
+    if not TELEGRAM_TOKEN:
+        return "TELEGRAM_TOKEN not set", 500
+
+    try:
+        data = request.get_json(silent=True)
+        if not data or 'message' not in data:
+            return "OK"
+
+        msg = data['message']
+        chat_id = msg['chat']['id']
+        text = msg.get('text', '')
+        user = msg.get('from', {})
+        name = user.get('first_name', '') + (' ' + user.get('last_name', '') if user.get('last_name') else '')
+
+        # ===== /start =====
+        if text == '/start':
+            webapp_url = f"{BASE_URL}/webapp"
+            requests.post(f"{TELEGRAM_URL}/sendMessage", json={
+                'chat_id': chat_id,
+                'text': "🌟 እንኳን ደህና መጡ ወደ Shalom Technology!\n\n📱 አፕሊኬሽናችንን ለመክፈት ከታች ያለውን ቁልፍ ይጫኑ!",
+                'reply_markup': {
+                    'inline_keyboard': [[{
+                        'text': '🚀 አፕ ክፈት',
+                        'web_app': {'url': webapp_url}
+                    }]]
+                }
+            })
+            return "OK"
+
+        # ===== AI ምላሽ =====
+        if DEEPSEEK_API_KEY:
+            try:
+                response = requests.post(
+                    "https://api.deepseek.com/chat/completions",
+                    json={
+                        "model": "deepseek-chat",
+                        "messages": [
+                            {"role": "system", "content": "አንተ Marshalom AI ነህ — የ Shalom Technology ረዳት። በአማርኛ መልስ ስጥ።"},
+                            {"role": "user", "content": text}
+                        ],
+                        "max_tokens": 300
+                    },
+                    headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
+                    timeout=25
+                )
+                if response.status_code == 200:
+                    ai_reply = response.json()["choices"][0]["message"]["content"]
+                    requests.post(f"{TELEGRAM_URL}/sendMessage", json={
+                        'chat_id': chat_id,
+                        'text': f"🤖 *Marshalom AI:*\n\n{ai_reply}",
+                        'parse_mode': 'Markdown'
+                    })
+                else:
+                    requests.post(f"{TELEGRAM_URL}/sendMessage", json={
+                        'chat_id': chat_id,
+                        'text': "⏳ እባክዎ ይጠብቁ! በቅርቡ ምላሽ ያገኛሉ።"
+                    })
+            except:
+                requests.post(f"{TELEGRAM_URL}/sendMessage", json={
+                    'chat_id': chat_id,
+                    'text': "⏳ እባክዎ ይጠብቁ! በቅርቡ ምላሽ ያገኛሉ።"
+                })
+        else:
+            requests.post(f"{TELEGRAM_URL}/sendMessage", json={
+                'chat_id': chat_id,
+                'text': "🌟 ማርሻሎም የቴክኖሎጂ ረዳት\n\nሰላም! መልእክትዎን ስላደረሱን እናመሰግናለን። በቅርቡ ምላሽ ያገኛሉ።"
+            })
+
+        return "OK"
+    except Exception as e:
+        print(f"Error: {e}")
+        return "OK"
+
 def get_webapp_html():
-    social_links = {
-        'youtube': 'https://youtube.com/@ShalomTechnology',
-        'tiktok': 'https://www.tiktok.com/@marshalomcctv',
-        'facebook': 'https://facebook.com/share/1YEeCpFBgp',
-        'instagram': 'https://instagram.com/marshalom',
-        'telegram': 'https://t.me/MarshalomTech',
-        'website': 'https://marshalom.com'
-    }
-    
-    js_code = f"""
-    function showPage(id) {{
-        document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-        document.getElementById(id).classList.add('active');
-        document.getElementById('pagesContainer').scrollTop=0;
-        document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
-        if(id==='page-home') document.querySelector('.nav-item:nth-child(1)').classList.add('active');
-        else if(id==='page-products') document.querySelector('.nav-item:nth-child(2)').classList.add('active');
-        else if(id==='page-ai') document.querySelector('.nav-item:nth-child(3)').classList.add('active');
-        else if(id==='page-share') document.querySelector('.nav-item:nth-child(4)').classList.add('active');
-        else if(id==='page-jobs') document.querySelector('.nav-item:nth-child(5)').classList.add('active');
-    }}
-    function openSocial(url) {{ window.open(url, '_blank'); }}
-    function openAdminLogin() {{
-        var pwd = prompt('🔑 የአድሚን የይለፍ ቃል ያስገቡ:');
-        if(pwd === '{ADMIN_PASSWORD}') {{ showPage('page-admin'); }} 
-        else if(pwd !== null) {{ alert('❌ የተሳሳተ የይለፍ ቃል!'); }}
-    }}
-    function openEmployeeLogin() {{
-        var user = prompt('👤 የተጠቃሚ ስም:');
-        var pwd = prompt('🔑 የይለፍ ቃል:');
-        if(user === 'teamleader' && pwd === '{TEAM_PASSWORD}') {{ showPage('page-teamleader'); }} 
-        else if(user === 'employee' && pwd === '{EMP_PASSWORD}') {{ showPage('page-employee'); }} 
-        else {{ alert('❌ የተሳሳተ መረጃ!'); }}
-    }}
-    function openModal(type) {{
-        var titles = {{
-            'stats': '📊 ስታቲስቲክስ',
-            'products': '🛍️ ምርቶች',
-            'customers': '👥 ደንበኞች',
-            'addemp': '➕ ሰራተኛ ጨምር',
-            'employees': '📋 ሰራተኞች',
-            'banks': '🏦 ባንክ',
-            'customize': '🎨 ማበጀት',
-            'promo': '📢 ማስታወቂያ',
-            'cameras': '📹 ካሜራዎች',
-            'system': '🔧 ሲስተም'
-        }};
-        var contents = {{
-            'stats': '📈 ዛሬ ጥያቄ: 24<br>📈 አዳዲስ ደንበኛ: 12<br>📈 ጠቅላላ ደንበኛ: 156<br>📈 ዛሬ ሽያጭ: 8<br>📈 ሰራተኞች: 5<br>📈 ካሜራዎች: 10',
-            'products': '📦 CALUS VC9 - 4G Solar<br>📦 C92 MAX - Smartwatch<br>📦 IMOU Ranger - Dual Lens<br>📦 Speed Dome - 4MP<br>📦 Stellar AOV - Solar',
-            'customers': '👤 አለሙ ተሾመ - 0931556590<br>👤 ሳራ አለሙ - 0912345678<br>👤 ዳዊት ሙሉ - 0923456789<br>... እና 151 ተጨማሪ',
-            'addemp': '👤 ሙሉ ስም: _________<br>📧 የተጠቃሚ ስም: _________<br>🔑 የይለፍ ቃል: _________<br>💼 ስራ: _________<br>💰 ደመወዝ: _________<br><br>✅ ሰራተኛ ለመጨመር ቅጽ ተከፈተ!',
-            'employees': '👤 አብይ አለሙ - CCTV ቴክኒሽያን<br>👤 ሳራ ተሾመ - የኔትወርክ መሐንዲስ<br>👤 ዳዊት ሙሉ - የሽያጭ ተወካይ<br>👤 ማርያም አለሙ - የሽያጭ ተወካይ<br>👤 ሄኖክ ተሾመ - ቴክኒሽያን',
-            'banks': '🏦 ንግድ ባንክ: 1000134567890<br>🏦 አዋሽ ባንክ: 2000245678901<br>🏦 ዳሽን ባንክ: 3000345678902<br>🏦 አብይ ባንክ: 4000456789013',
-            'customize': '🎨 የምርት ስሞች መቀየር<br>🎨 የአዝራሮች አዶዎች መቀየር<br>🎨 የመነሻ ገጽ ቀለም መቀየር',
-            'promo': '📢 የሳምንቱ ቅናሽ! 10% ቅናሽ!<br>📢 Stellar AOV አዲስ ምርት!<br>📢 C92 MAX 15% ቅናሽ!',
-            'cameras': '📷 CALUS VC9 - 4G Solar<br>📷 C92 MAX - Smartwatch<br>📷 IMOU Ranger - Dual Lens<br>📷 Speed Dome - 4MP<br>📷 Stellar AOV - Solar<br>📷 የግቢ ካሜራ<br>📷 የቤት ውስጥ ካሜራ<br>📷 ሶላር ካሜራ<br>📷 የመኪና ካሜራ<br>📷 360° ካሜራ',
-            'system': '🔧 ስሪት: v2.0.1<br>🔧 የተሻሻለ: ጁላይ 2026<br>🔧 የደህንነት: ንቁ<br>🔧 የAI ሁኔታ: በመስራት ላይ<br>🔧 የዳታቤዝ: ተገናኝቷል'
-        }};
-        var modal = document.getElementById('adminModal');
-        document.getElementById('adminModalTitle').textContent = titles[type] || '📱 ገጽ';
-        document.getElementById('adminModalBody').innerHTML = contents[type] || 'ይህ ገጽ በቅርቡ ይጨመራል!';
-        modal.classList.add('show');
-    }}
-    function closeModal() {{ document.getElementById('adminModal').classList.remove('show'); }}
-    function copyText(text) {{
-        navigator.clipboard.writeText(text).then(() => {{
-            alert('✅ ተቀድቷል!');
-        }}).catch(() => {{
-            var input = document.createElement('input');
-            input.value = text;
-            document.body.appendChild(input);
-            input.select();
-            document.execCommand('copy');
-            document.body.removeChild(input);
-            alert('✅ ተቀድቷል!');
-        }});
-    }}
-    """
-    
     return f"""
 <!DOCTYPE html>
 <html lang="am">
@@ -170,7 +213,7 @@ def get_webapp_html():
         .product-card .ask-btn:hover {{ transform: scale(1.03); box-shadow: 0 4px 15px rgba(74,58,26,0.3); }}
         .channel-link {{ padding: 8px; background: rgba(74,158,255,0.08); border-radius: 12px; text-align: center; border: 1px dashed #4a9eff; margin-bottom: 10px; cursor: pointer; }}
         .channel-link a {{ color: #4a9eff; font-weight: 600; text-decoration: none; font-size: 12px; }}
-        .promo-banner {{ background: linear-gradient(135deg,#4a2a2a,#3a1a1a); border-radius: 12px; padding: 10px 14px; margin-top: 10px; display: flex; align-items: center; gap: 10px; border: 1px solid #4a3a1a; }}
+        .promo-banner {{ background: linear-gradient(135deg,#4a2a2a,#3a1a1a); border-radius: 12px; padding: 10px 14px; margin-top: 10px; display: flex; align-items: center; gap: 10px; border: 1px solid #4a3a1a; cursor: pointer; }}
         .promo-banner .text {{ font-size: 12px; color: #c0d8e8; flex: 1; font-weight: 600; }}
         .promo-banner .text strong {{ color: #b8a84a; }}
         .promo-banner .link {{ color: #4a9eff; font-size: 11px; text-decoration: none; cursor: pointer; background: rgba(74,158,255,0.1); padding: 4px 12px; border-radius: 20px; font-weight: 600; transition: 0.2s; }}
@@ -273,10 +316,10 @@ def get_webapp_html():
                 <div class="menu-btn" onclick="openEmployeeLogin()"><span class="icon">👔</span><span data-key="m15">ቲም ሊደር</span></div>
                 <div class="menu-btn" onclick="openEmployeeLogin()"><span class="icon">👤</span><span data-key="m16">ሰራተኛ</span></div>
             </div>
-            <div class="promo-banner">
+            <div class="promo-banner" onclick="window.open('https://t.me/MarshalomTech','_blank')">
                 <span style="font-size:18px;">🔥</span>
                 <span class="text" id="promoText">✨ <strong>አዲስ የፀሐይ ካሜራ</strong> 15% ቅናሽ!</span>
-                <span class="link" onclick="alert('🔥 ወደ ፕሮሞሽን ገጽ ይወሰዳሉ!')" id="promoLink">ተመልከት</span>
+                <span class="link">ተመልከት</span>
             </div>
             <div style="margin-top:6px; text-align:center; color:#6a8a9e; font-size:9px;">
                 📢 ቻናላችን: <a href="https://t.me/MarshalomTech" target="_blank" style="color:#4a9eff; text-decoration:none;">@MarshalomTech</a>
@@ -292,7 +335,7 @@ def get_webapp_html():
                     <div class="info">
                         <div class="name" style="color:#ffd700;">🌟 አዲስ የፀሐይ ካሜራ</div>
                         <div class="desc">4ጂ፣ 360°፣ ባትሪ</div>
-                        <button class="ask-btn" onclick="alert('💬 ዋጋ ጥያቄ ተልኳል! በቅርቡ ምላሽ ያገኛሉ!')">💬 15% ቅናሽ!</button>
+                        <button class="ask-btn" onclick="askPrice(1, '🌟 አዲስ የፀሐይ ካሜራ')">💬 15% ቅናሽ!</button>
                     </div>
                 </div>
                 <div class="product-card">
@@ -300,7 +343,7 @@ def get_webapp_html():
                     <div class="info">
                         <div class="name">📱 ስማርት ሰዓት</div>
                         <div class="desc">6ጂቢ ራም፣ 4ጂ</div>
-                        <button class="ask-btn" onclick="alert('💬 ዋጋ ጥያቄ ተልኳል!')">💬 ዋጋ ጠይቁ</button>
+                        <button class="ask-btn" onclick="askPrice(2, '📱 ስማርት ሰዓት')">💬 ዋጋ ጠይቁ</button>
                     </div>
                 </div>
                 <div class="product-card">
@@ -308,7 +351,7 @@ def get_webapp_html():
                     <div class="info">
                         <div class="name">📷 ባለሁለት ሌንስ ካሜራ</div>
                         <div class="desc">10ሜጋፒክስል</div>
-                        <button class="ask-btn" onclick="alert('💬 ዋጋ ጥያቄ ተልኳል!')">💬 ዋጋ ጠይቁ</button>
+                        <button class="ask-btn" onclick="askPrice(3, '📷 ባለሁለት ሌንስ ካሜራ')">💬 ዋጋ ጠይቁ</button>
                     </div>
                 </div>
                 <div class="product-card">
@@ -316,16 +359,16 @@ def get_webapp_html():
                     <div class="info">
                         <div class="name">🚀 ፈጣን ካሜራ</div>
                         <div class="desc">32x ማጉላት</div>
-                        <button class="ask-btn" onclick="alert('💬 ዋጋ ጥያቄ ተልኳል!')">💬 ዋጋ ጠይቁ</button>
+                        <button class="ask-btn" onclick="askPrice(4, '🚀 ፈጣን ካሜራ')">💬 ዋጋ ጠይቁ</button>
                     </div>
                 </div>
             </div>
-            <div class="promo-banner">
+            <div class="promo-banner" onclick="window.open('https://t.me/MarshalomTech','_blank')">
                 <span style="font-size:16px;">🔥</span>
                 <span class="text" style="font-size:11px;">✨ <strong>ሁሉም ምርቶች 10% ቅናሽ!</strong> ዛሬ ብቻ!</span>
-                <span class="link" onclick="alert('🔥 ወደ ፕሮሞሽን ገጽ ይወሰዳሉ!')">ተመልከት</span>
+                <span class="link">ተመልከት</span>
             </div>
-            <div class="channel-link">📢 <a href="https://t.me/MarshalomTech" target="_blank">ተጨማሪ ምርቶች ለማየት ቻናላችንን ይቀላቀሉ</a> 📢</div>
+            <div class="channel-link" onclick="window.open('https://t.me/MarshalomTech','_blank')">📢 <a href="https://t.me/MarshalomTech" target="_blank">ተጨማሪ ምርቶች ለማየት ቻናላችንን ይቀላቀሉ</a> 📢</div>
         </div>
 
         <!-- CALL -->
@@ -347,12 +390,12 @@ def get_webapp_html():
         <div class="page" id="page-social">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>🌐 <span id="socialTitle">ማህበራዊ ሚዲያ</span></div>
             <div class="social-grid">
-                <div class="social-item" onclick="openSocial('{social_links['youtube']}')"><span class="icon">▶️</span><span class="label">YouTube</span></div>
-                <div class="social-item" onclick="openSocial('{social_links['tiktok']}')"><span class="icon">🎵</span><span class="label">TikTok</span></div>
-                <div class="social-item" onclick="openSocial('{social_links['facebook']}')"><span class="icon">📘</span><span class="label">Facebook</span></div>
-                <div class="social-item" onclick="openSocial('{social_links['instagram']}')"><span class="icon">📸</span><span class="label">Instagram</span></div>
-                <div class="social-item" onclick="openSocial('{social_links['telegram']}')"><span class="icon">✈️</span><span class="label">ቴሌግራም</span></div>
-                <div class="social-item" onclick="openSocial('{social_links['website']}')"><span class="icon">🌐</span><span class="label">ድር ጣቢያ</span></div>
+                <div class="social-item" onclick="openSocial('https://youtube.com/@ShalomTechnology')"><span class="icon">▶️</span><span class="label">YouTube</span></div>
+                <div class="social-item" onclick="openSocial('https://www.tiktok.com/@marshalomcctv')"><span class="icon">🎵</span><span class="label">TikTok</span></div>
+                <div class="social-item" onclick="openSocial('https://facebook.com/share/1YEeCpFBgp')"><span class="icon">📘</span><span class="label">Facebook</span></div>
+                <div class="social-item" onclick="openSocial('https://instagram.com/marshalom')"><span class="icon">📸</span><span class="label">Instagram</span></div>
+                <div class="social-item" onclick="openSocial('https://t.me/MarshalomTech')"><span class="icon">✈️</span><span class="label">ቴሌግራም</span></div>
+                <div class="social-item" onclick="openSocial('https://marshalom.com')"><span class="icon">🌐</span><span class="label">ድር ጣቢያ</span></div>
             </div>
         </div>
 
@@ -364,30 +407,28 @@ def get_webapp_html():
                 <span>ይህንን ቦት ለጓደኞችዎ ያጋሩ!</span>
             </div>
             <div class="share-grid">
-                <div class="share-item" onclick="navigator.share?navigator.share({{title:'ሻሎም ቴክኖሎጂ',text:'ይህንን ቦት ይጠቀሙ!',url:'https://t.me/MarshalomTech'}}):alert('📤 ማጋሪያ ተከፈተ!')"><span class="icon">💬</span><span class="label">WhatsApp</span></div>
-                <div class="share-item" onclick="navigator.share?navigator.share({{title:'ሻሎም ቴክኖሎጂ',text:'ይህንን ቦት ይጠቀሙ!',url:'https://t.me/MarshalomTech'}}):alert('📤 ማጋሪያ ተከፈተ!')"><span class="icon">📘</span><span class="label">Facebook</span></div>
-                <div class="share-item" onclick="navigator.share?navigator.share({{title:'ሻሎም ቴክኖሎጂ',text:'ይህንን ቦት ይጠቀሙ!',url:'https://t.me/MarshalomTech'}}):alert('📤 ማጋሪያ ተከፈተ!')"><span class="icon">✈️</span><span class="label">Telegram</span></div>
-                <div class="share-item" onclick="navigator.share?navigator.share({{title:'ሻሎም ቴክኖሎጂ',text:'ይህንን ቦት ይጠቀሙ!',url:'https://t.me/MarshalomTech'}}):alert('📤 ማጋሪያ ተከፈተ!')"><span class="icon">📸</span><span class="label">Instagram</span></div>
-                <div class="share-item" onclick="navigator.share?navigator.share({{title:'ሻሎም ቴክኖሎጂ',text:'ይህንን ቦት ይጠቀሙ!',url:'https://t.me/MarshalomTech'}}):alert('📤 ማጋሪያ ተከፈተ!')"><span class="icon">🎵</span><span class="label">TikTok</span></div>
-                <div class="share-item" onclick="navigator.share?navigator.share({{title:'ሻሎም ቴክኖሎጂ',text:'ይህንን ቦት ይጠቀሙ!',url:'https://t.me/MarshalomTech'}}):alert('📤 ማጋሪያ ተከፈተ!')"><span class="icon">💼</span><span class="label">LinkedIn</span></div>
-                <div class="share-item" onclick="navigator.share?navigator.share({{title:'ሻሎም ቴክኖሎጂ',text:'ይህንን ቦት ይጠቀሙ!',url:'https://t.me/MarshalomTech'}}):alert('📤 ማጋሪያ ተከፈተ!')"><span class="icon">🐦</span><span class="label">Twitter</span></div>
+                <div class="share-item" onclick="shareBot('WhatsApp')"><span class="icon">💬</span><span class="label">WhatsApp</span></div>
+                <div class="share-item" onclick="shareBot('Facebook')"><span class="icon">📘</span><span class="label">Facebook</span></div>
+                <div class="share-item" onclick="shareBot('Telegram')"><span class="icon">✈️</span><span class="label">Telegram</span></div>
+                <div class="share-item" onclick="shareBot('Instagram')"><span class="icon">📸</span><span class="label">Instagram</span></div>
+                <div class="share-item" onclick="shareBot('TikTok')"><span class="icon">🎵</span><span class="label">TikTok</span></div>
+                <div class="share-item" onclick="shareBot('LinkedIn')"><span class="icon">💼</span><span class="label">LinkedIn</span></div>
+                <div class="share-item" onclick="shareBot('Twitter')"><span class="icon">🐦</span><span class="label">Twitter</span></div>
                 <div class="share-item" onclick="copyText('https://t.me/MarshalomTech')"><span class="icon">🔗</span><span class="label">ሊንክ</span></div>
             </div>
         </div>
 
-        <!-- NEWS - 10 FUN NEWS -->
+        <!-- NEWS - FUNNY JOKES -->
         <div class="page" id="page-news">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>📰 <span id="newsTitle">ዜና</span></div>
-            <div class="news-item"><div class="title">📸 አዲስ ካሜራ ፊት ብቻ ሳይሆን የእግር ንዝረትን ይለያል!</div><div class="desc">የቻይና ኩባንያ አዲስ AI ካሜራ አስገባ — ሰዎችን በእግራቸው እንቅስቃሴ ይለያል! 🦶</div></div>
-            <div class="news-item"><div class="title">🚀 በአሜሪካ የሰማይ ላይ ካሜራ ተፈተሸ</div><div class="desc">ሰዎችን ከ5 ኪሎ ሜትር ርቀት የሚያውቅ ካሜራ ተፈተሸ! 🌍</div></div>
-            <div class="news-item"><div class="title">😂 አስቂኝ — "777" የማርሻሎም ምስጢር!</div><div class="desc">ማርሻሎም ለቦቱ ፓስዎርድ "777" አድርጎታል! እስካሁን ምስጢሩን አላወቀም! 🤫😂</div></div>
-            <div class="news-item"><div class="title">🤖 AI አሁን የሰውን ስሜት ይረዳል!</div><div class="desc">አዲስ AI የተጠቃሚውን ስሜት በመለየት ምላሽ ይሰጣል! 😊</div></div>
-            <div class="news-item"><div class="title">📱 የሚታጠፍ ስማርትፎን ተለቀቀ!</div><div class="desc">አዲሱ የሚታጠፍ ስማርትፎን አሁን በገበያ ላይ ይገኛል! 📱</div></div>
-            <div class="news-item"><div class="title">🔒 አዲስ የደህንነት ስርዓት ተፈተሸ</div><div class="desc">የፊት መለያ እና የዓይን መለያ አንድ ላይ የሚሰራ ስርዓት! 👁️</div></div>
-            <div class="news-item"><div class="title">🌞 ሶላር ካሜራ ከ10 ዓመት ባትሪ</div><div class="desc">አዲስ ሶላር ካሜራ ሙሉ በሙሉ በፀሐይ የሚሰራ እና የማይጠፋ ባትሪ አለው! ☀️</div></div>
-            <div class="news-item"><div class="title">🎮 ካሜራ በጨዋታ ቁጥጥር!</div><div class="desc">አዲሱ ካሜራ በጨዋታ መቆጣጠሪያ ሊቆጣጠሩት ይችላሉ! 🎮</div></div>
-            <div class="news-item"><div class="title">🐶 ካሜራ የቤት እንስሳትን ይከታተላል!</div><div class="desc">አዲስ ካሜራ የቤት እንስሳትን እንቅስቃሴ ይከታተላል እና ሪፖርት ያደርጋል! 🐕</div></div>
-            <div class="news-item"><div class="title">💡 በማስተዋል የሚሰራ መብራት!</div><div class="desc">ካሜራ ሰው ሲያይ መብራቱን በራሱ ያበራል! 💡</div></div>
+            <div class="news-item"><div class="title">😄 ማርሻሎም ዛሬ ምሽት ለልወም እራት አዘጋጀ!</div><div class="desc">ልወም በጣም ደስ አላት! ማርሻሎም ጥሩ ባለቤት ነው! ❤️</div></div>
+            <div class="news-item"><div class="title">👶 ናኦድ ዛሬ የመጀመሪያ ቃሉን ተናገረ!</div><div class="desc">"ካሜራ" አለ! አባቱ ማርሻሎም በጣም ኩራት ተሰማ! 🥹</div></div>
+            <div class="news-item"><div class="title">😂 ማርሻሎም ለCCTV ካሜራ "ራስ አለቃ" አላት!</div><div class="desc">ካሜራው ማንንም ሳያስቀር ያያል! ማርሻሎም እንኳን! 😂</div></div>
+            <div class="news-item"><div class="title">📸 አዲስ ካሜራ ፊት ብቻ ሳይሆን የእግር ንዝረትን ይለያል!</div><div class="desc">ማርሻሎም አዲሱን ካሜራ በቤቱ ጫነ! ልወም እንኳን አታምልጥም! 😂</div></div>
+            <div class="news-item"><div class="title">🚀 በአሜሪካ የሰማይ ላይ ካሜራ ተፈተሸ</div><div class="desc">ማርሻሎም "እኔም አለኝ!" አለ! የራሱን ሰማይ ላይ ካሜራ ሊሰራ ነው! 🌍</div></div>
+            <div class="news-item"><div class="title">😂 "777" የማርሻሎም ምስጢራዊ ፓስዎርድ!</div><div class="desc">ማርሻሎም ለሁሉም ነገር "777" አድርጎታል! ማንም አያውቀውም! 🤫</div></div>
+            <div class="news-item"><div class="title">🤖 AI አሁን የሰውን ስሜት ይረዳል!</div><div class="desc">ማርሻሎም AI ለልወም ያለውን ፍቅር ይረዳል! 😊</div></div>
+            <div class="news-item"><div class="title">🐶 ካሜራ የቤት እንስሳትን ይከታተላል!</div><div class="desc">ማርሻሎም የቤቱን ውሻ ለማየት ካሜራ ጫነ! 🐕</div></div>
         </div>
 
         <!-- COMPARE -->
@@ -395,13 +436,13 @@ def get_webapp_html():
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>⚖️ <span id="compareTitle">ንጽጽር</span></div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px;">
                 <div style="background:rgba(255,255,255,0.04); border-radius:12px; padding:10px; border:1px solid rgba(255,255,255,0.06);">
-                    <div class="compare-option"><span style="color:#8aa3b5; font-size:10px;">ካሜራ 1</span><select><option>CALUS VC9</option><option>C92 MAX</option><option>Speed Dome</option></select></div>
-                    <div class="compare-option"><span style="color:#8aa3b5; font-size:10px;">ካሜራ 2</span><select><option>Speed Dome</option><option>IMOU Ranger</option><option>Stellar AOV</option></select></div>
-                    <button class="btn-primary" style="margin-top:4px; padding:6px; font-size:11px;" onclick="alert('📊 ንጽጽር ውጤት እዚህ ይታያል!')">🔍 አወዳድር</button>
+                    <div class="compare-option"><span style="color:#8aa3b5; font-size:10px;">ካሜራ 1</span><select id="cam1"><option>CALUS VC9</option><option>C92 MAX</option><option>Speed Dome</option></select></div>
+                    <div class="compare-option"><span style="color:#8aa3b5; font-size:10px;">ካሜራ 2</span><select id="cam2"><option>Speed Dome</option><option>IMOU Ranger</option><option>Stellar AOV</option></select></div>
+                    <button class="btn-primary" style="margin-top:4px; padding:6px; font-size:11px;" onclick="compareCameras()">🔍 አወዳድር</button>
                 </div>
                 <div style="background:rgba(255,255,255,0.04); border-radius:12px; padding:10px; border:1px solid rgba(255,255,255,0.06);">
                     <div style="color:#b8a84a; font-weight:600; font-size:11px; text-align:center;">📊 ውጤት</div>
-                    <div style="color:#c0d8e8; font-size:10px; padding:4px 0; text-align:center;">ካሜራዎችን ይምረጡ!</div>
+                    <div id="compareResult" style="color:#c0d8e8; font-size:10px; padding:8px; text-align:center;">ካሜራዎችን ይምረጡ!</div>
                 </div>
             </div>
         </div>
@@ -411,33 +452,33 @@ def get_webapp_html():
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>💼 <span id="jobsTitle">ክፍት ስራ</span></div>
             <div class="job-item"><h3>📹 የCCTV ተከላ ቴክኒሽያን</h3><p>አዲስ አበባ — ልምድ ያለው</p></div>
             <div class="job-item"><h3>💻 የኔትወርክ መሐንዲስ</h3><p>ለድርጅቶች ኔትወርክ መጫን</p></div>
-            <div class="promo-banner" style="margin-top:6px;">
+            <div class="promo-banner" style="margin-top:6px;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
                 <span style="font-size:14px;">🔥</span>
-                <span class="text" style="font-size:10px;">✨ <strong>አሁን ተቀላቀሉ!</strong> አዳዲስ ስራዎች በቅርቡ ይጨመራሉ!</span>
-                <span class="link" onclick="alert('📢 ለወቅታዊ ማስታወቂያዎች ቻናላችንን ይቀላቀሉ!')">ተመልከት</span>
+                <span class="text" style="font-size:10px;">✨ <strong>አሁን ተቀላቀሉ!</strong> አዳዲስ ስራዎች በቅርቡ!</span>
+                <span class="link">ተመልከት</span>
             </div>
             <button class="btn-primary" onclick="showPage('page-apply')">📝 አሁን አመልክት</button>
         </div>
 
-        <!-- APPLY FORM -->
+        <!-- APPLY -->
         <div class="page" id="page-apply">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-jobs')">‹</button>📝 ማመልከቻ</div>
             <div class="apply-form">
                 <label>👤 ሙሉ ስም</label>
-                <input type="text" placeholder="ሙሉ ስምዎ">
+                <input type="text" id="fullName" placeholder="ሙሉ ስምዎ">
                 <label>📱 ስልክ ቁጥር</label>
-                <input type="tel" placeholder="09xxxxxxxx">
+                <input type="tel" id="phone" placeholder="09xxxxxxxx">
                 <label>📧 ኢሜይል</label>
-                <input type="email" placeholder="ኢሜይልዎ">
+                <input type="email" id="email" placeholder="ኢሜይልዎ">
                 <label>🎓 የትምህርት ደረጃ</label>
-                <select><option>ዲፕሎማ</option><option>ባችለር</option><option>ማስተርስ</option></select>
+                <select id="education"><option>ዲፕሎማ</option><option>ባችለር</option><option>ማስተርስ</option></select>
                 <label>📄 የመታወቂያ (ID) ፎቶ</label>
                 <input type="file" accept="image/*" style="padding:6px;">
                 <label>📄 የትምህርት ሰርተፊኬት</label>
                 <input type="file" accept=".pdf,.jpg,.png" style="padding:6px;">
                 <label>📝 ተጨማሪ መረጃ</label>
-                <textarea rows="3" placeholder="ስለ እርስዎ ተጨማሪ መረጃ..."></textarea>
-                <button class="btn-primary gold" onclick="alert('✅ ማመልከቻዎ ተልኳል! በቅርቡ እናገኝዎታለን!')">📨 አሁን አመልክት</button>
+                <textarea id="extraInfo" rows="3" placeholder="ስለ እርስዎ ተጨማሪ መረጃ..."></textarea>
+                <button class="btn-primary gold" onclick="submitApplication()">📨 አሁን አመልክት</button>
             </div>
         </div>
 
@@ -451,10 +492,10 @@ def get_webapp_html():
                 <div style="font-size:13px; color:#c0d8e8;">ቅናሽ ለ <strong>C92 MAX</strong></div>
                 <button class="btn-primary gold" style="margin-top:6px;" onclick="alert('🎁 ቅናሽ ተቀብለዋል! አድሚን ያግኙ!')">ቅናሹን አግኙ</button>
             </div>
-            <div class="promo-banner" style="margin-top:6px;">
+            <div class="promo-banner" style="margin-top:6px;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
                 <span style="font-size:14px;">🔥</span>
                 <span class="text" style="font-size:10px;">✨ <strong>ሌሎች ቅናሾች:</strong> ሁሉም ምርቶች 10% ቅናሽ!</span>
-                <span class="link" onclick="alert('📢 ለወቅታዊ ማስታወቂያዎች ቻናላችንን ይቀላቀሉ!')">ተመልከት</span>
+                <span class="link">ተመልከት</span>
             </div>
         </div>
 
@@ -465,7 +506,7 @@ def get_webapp_html():
                 <div style="color:#b8a84a; font-size:14px; font-weight:700; text-align:center;">🌟 ማርሻሎም የቴክኖሎጂ ረዳት 🌟</div>
                 <div style="color:#c0d8e8; font-size:11px; line-height:1.6; margin-top:4px;">ሰላም! መልእክትዎን ስላደረሱን እናመሰግናለን። 🙏<br>አሁን ላይ እጅግ በጣም ብዙ ጥያቄዎችን በማስተናገድ ላይ ስለሆንን፣ ትክክለኛ ምላሽ ለእርስዎ ለመስጠት ፍቃድ በመጠበቅ ላይ እገኛለሁ። ⏳<br>አትጨነቁ! መልእክትዎ በአስተማማኝ ሁኔታ ተይዟል። 🤝✨</div>
                 <div style="background:rgba(255,0,0,0.06); border-left:4px solid #ff4444; padding:5px; border-radius:5px; margin-top:5px; font-size:10px; color:#ffaaaa;"><strong>⚠️ አስቸኳይ ከሆነ:</strong> "አስቸኳይ" ብለው ይጻፉ። ወደ ማርሻሎም ይላካል! 📞</div>
-                <button class="btn-primary" style="margin-top:6px; background:transparent; border:1px solid #4a9eff; color:#4a9eff;" onclick="alert('📨 አስቸኳይ መልእክት ለማርሻሎም ተልኳል!')">📨 አስቸኳይ ላክ</button>
+                <button class="btn-primary" style="margin-top:6px; background:transparent; border:1px solid #4a9eff; color:#4a9eff;" onclick="sendUrgent()">📨 አስቸኳይ ላክ</button>
             </div>
         </div>
 
@@ -478,30 +519,65 @@ def get_webapp_html():
                 <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-top:6px;">
                     <div style="background:rgba(255,255,255,0.04); border-radius:12px; padding:10px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="window.location.href='tel:0931556590'"><span style="font-size:28px; display:block;">📞</span><span style="font-size:9px; color:#c0d8e8;">ስልክ</span><span style="font-size:8px; color:#8aa3b5;">0931556590</span></div>
                     <div style="background:rgba(255,255,255,0.04); border-radius:12px; padding:10px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="window.open('https://wa.me/251799556590','_blank')"><span style="font-size:28px; display:block;">💬</span><span style="font-size:9px; color:#c0d8e8;">ዋትሳፕ</span><span style="font-size:8px; color:#8aa3b5;">+251799556590</span></div>
-                    <div style="background:rgba(255,255,255,0.04); border-radius:12px; padding:10px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="window.open('https://t.me/MarshalomTech','_blank')"><span style="font-size:28px; display:block;">✈️</span><span style="font-size:9px; color:#c0d8e8;">ቴሌግራም</span><span style="font-size:8px; color:#8aa3b5;">@MarshalomTech</span></div>
+                    <div style="background:rgba(255,255,255,0.04); border-radius:12px; padding:10px; text-align:center; cursor:pointer; border:1px solid rgba(255,255,255,0.06);" onclick="window.open('https://t.me/marshalom_bot','_blank')"><span style="font-size:28px; display:block;">✈️</span><span style="font-size:9px; color:#c0d8e8;">ቴሌግራም</span><span style="font-size:8px; color:#8aa3b5;">@marshalom_bot</span></div>
                 </div>
                 <button class="btn-primary" style="margin-top:6px;" onclick="window.location.href='tel:0931556590'">📞 ወዲያው ይደውሉ</button>
             </div>
         </div>
 
-        <!-- PROMO -->
+        <!-- PROMO - 12 PROMOTIONS -->
         <div class="page" id="page-promo">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>📢 <span id="promoTitle">ማስታወቂያ</span></div>
-            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #4a9eff; margin-bottom:4px;">
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #4a9eff; margin-bottom:4px; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
                 <div style="color:#b8a84a; font-weight:600; font-size:11px;">📢 የሳምንቱ ቅናሽ!</div>
-                <div style="color:#c0d8e8; font-size:11px;">ሁሉም CCTV ካሜራዎች 10% ቅናሽ! ዛሬ ብቻ!</div>
+                <div style="color:#c0d8e8; font-size:11px;">ሁሉም CCTV ካሜራዎች 10% ቅናሽ!</div>
             </div>
-            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #b8a84a; margin-bottom:4px;">
-                <div style="color:#b8a84a; font-weight:600; font-size:11px;">🎉 አዲስ ምርት!</div>
-                <div style="color:#c0d8e8; font-size:11px;">Stellar AOV Solar Camera — አሁን ተገኝቷል!</div>
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #b8a84a; margin-bottom:4px; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
+                <div style="color:#b8a84a; font-weight:600; font-size:11px;">🎉 አዲስ ምርት - Stellar AOV!</div>
+                <div style="color:#c0d8e8; font-size:11px;">አዲሱ የፀሐይ ካሜራ አሁን ተገኝቷል!</div>
             </div>
-            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #ff6b6b; margin-bottom:4px;">
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #ff6b6b; margin-bottom:4px; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
                 <div style="color:#ff6b6b; font-weight:600; font-size:11px;">🔥 ፍጥነት!</div>
                 <div style="color:#c0d8e8; font-size:11px;">ለመጀመሪያ 10 ደንበኞች 20% ቅናሽ!</div>
             </div>
-            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #4ecdc4;">
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #4ecdc4; margin-bottom:4px; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
                 <div style="color:#4ecdc4; font-weight:600; font-size:11px;">🎁 የልደት ቅናሽ!</div>
-                <div style="color:#c0d8e8; font-size:11px;">የልደት ወር ላይ ሁሉም ምርቶች 15% ቅናሽ!</div>
+                <div style="color:#c0d8e8; font-size:11px;">በልደት ወር ሁሉም ምርቶች 15% ቅናሽ!</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #a29bfe; margin-bottom:4px; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
+                <div style="color:#a29bfe; font-weight:600; font-size:11px;">🎥 አዲስ ካሜራማን!</div>
+                <div style="color:#c0d8e8; font-size:11px;">ሙያዊ ካሜራማን አሁን ተገኝቷል!</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #fd79a8; margin-bottom:4px; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
+                <div style="color:#fd79a8; font-weight:600; font-size:11px;">📸 ባለሙያ ፎቶግራፍ!</div>
+                <div style="color:#c0d8e8; font-size:11px;">ለሁሉም ዝግጅቶች ፎቶግራፍ አገልግሎት!</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #55efc4; margin-bottom:4px; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
+                <div style="color:#55efc4; font-weight:600; font-size:11px;">🌙 የሌሊት ካሜራ!</div>
+                <div style="color:#c0d8e8; font-size:11px;">በጨለማ ውስጥ ግልጽ ምስል!</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #fab1a0; margin-bottom:4px; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
+                <div style="color:#fab1a0; font-weight:600; font-size:11px;">🎬 ቪዲዮ ቀረጻ!</div>
+                <div style="color:#c0d8e8; font-size:11px;">ከፍተኛ ጥራት ቪዲዮ ቀረጻ አገልግሎት!</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #81ecec; margin-bottom:4px; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
+                <div style="color:#81ecec; font-weight:600; font-size:11px;">🌐 የደህንነት ስርዓት!</div>
+                <div style="color:#c0d8e8; font-size:11px;">ሙሉ የደህንነት ስርዓት ተከላ!</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #ffeaa7; margin-bottom:4px; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
+                <div style="color:#ffeaa7; font-weight:600; font-size:11px;">💡 የብርሃን ስርዓት!</div>
+                <div style="color:#c0d8e8; font-size:11px;">አውቶማቲክ የብርሃን ስርዓት ተከላ!</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #74b9ff; margin-bottom:4px; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
+                <div style="color:#74b9ff; font-weight:600; font-size:11px;">📱 ስማርት ቤት!</div>
+                <div style="color:#c0d8e8; font-size:11px;">ሙሉ የስማርት ቤት ስርዓት!</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; border-left:4px solid #ff7675; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
+                <div style="color:#ff7675; font-weight:600; font-size:11px;">🎁 የክረምት ቅናሽ!</div>
+                <div style="color:#c0d8e8; font-size:11px;">ሁሉም ምርቶች 20% ቅናሽ!</div>
+            </div>
+            <div style="margin-top:6px; background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; text-align:center; cursor:pointer;" onclick="window.open('https://t.me/MarshalomTech','_blank')">
+                <div style="color:#b8a84a; font-size:11px;">📢 <strong>ተጨማሪ ማስታወቂያዎች ለማየት ቻናላችንን ይቀላቀሉ!</strong></div>
             </div>
         </div>
 
@@ -557,6 +633,11 @@ def get_webapp_html():
                     <div class="account-holder">👤 Lwam Alem</div>
                 </div>
             </div>
+            <div style="margin-top:8px; background:rgba(255,0,0,0.05); border-radius:12px; padding:10px; text-align:center; border:2px solid #ff4444;">
+                <div style="color:#ff4444; font-size:14px; font-weight:700;">⚠️ በጊዜያዊነት አይሰራም!</div>
+                <div style="color:#c0d8e8; font-size:12px;">PayPal: marshalom120@gmail.com (Marshalom Tesfay)</div>
+                <div style="color:#ff4444; font-size:10px; font-weight:600; margin-top:4px;">እባክዎ አትጠቀሙ! በመስራት ላይ ነው! 🔧</div>
+            </div>
         </div>
 
         <!-- ADMIN -->
@@ -577,16 +658,16 @@ def get_webapp_html():
                 <div class="stat-box"><div class="num">10</div><div class="label">ካሜራዎች</div></div>
             </div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
-                <div class="dash-card" onclick="openModal('stats')"><span class="icon">📊</span><div class="label">ስታቲስቲክስ</div></div>
-                <div class="dash-card" onclick="openModal('products')"><span class="icon">🛍️</span><div class="label">ምርቶች</div></div>
-                <div class="dash-card" onclick="openModal('customers')"><span class="icon">👥</span><div class="label">ደንበኞች</div></div>
-                <div class="dash-card" onclick="openModal('addemp')"><span class="icon">➕</span><div class="label">ሰራተኛ ጨምር</div></div>
-                <div class="dash-card" onclick="openModal('employees')"><span class="icon">📋</span><div class="label">ሰራተኞች</div></div>
-                <div class="dash-card" onclick="openModal('banks')"><span class="icon">🏦</span><div class="label">ባንክ</div></div>
-                <div class="dash-card" onclick="openModal('customize')"><span class="icon">🎨</span><div class="label">ማበጀት</div></div>
-                <div class="dash-card" onclick="openModal('promo')"><span class="icon">📢</span><div class="label">ማስታወቂያ</div></div>
-                <div class="dash-card" onclick="openModal('cameras')"><span class="icon">📹</span><div class="label">ካሜራዎች</div></div>
-                <div class="dash-card" onclick="openModal('system')"><span class="icon">🔧</span><div class="label">ሲስተም</div></div>
+                <div class="dash-card" onclick="openAdminModal('stats')"><span class="icon">📊</span><div class="label">ስታቲስቲክስ</div></div>
+                <div class="dash-card" onclick="openAdminModal('products')"><span class="icon">🛍️</span><div class="label">ምርቶች</div></div>
+                <div class="dash-card" onclick="openAdminModal('customers')"><span class="icon">👥</span><div class="label">ደንበኞች</div></div>
+                <div class="dash-card" onclick="openAdminModal('addemp')"><span class="icon">➕</span><div class="label">ሰራተኛ ጨምር</div></div>
+                <div class="dash-card" onclick="openAdminModal('employees')"><span class="icon">📋</span><div class="label">ሰራተኞች</div></div>
+                <div class="dash-card" onclick="openAdminModal('banks')"><span class="icon">🏦</span><div class="label">ባንክ</div></div>
+                <div class="dash-card" onclick="openAdminModal('customize')"><span class="icon">🎨</span><div class="label">ማበጀት</div></div>
+                <div class="dash-card" onclick="openAdminModal('promo')"><span class="icon">📢</span><div class="label">ማስታወቂያ</div></div>
+                <div class="dash-card" onclick="openAdminModal('cameras')"><span class="icon">📹</span><div class="label">ካሜራዎች</div></div>
+                <div class="dash-card" onclick="openAdminModal('system')"><span class="icon">🔧</span><div class="label">ሲስተም</div></div>
             </div>
             <div style="margin-top:8px; background:rgba(255,255,255,0.03); border-radius:10px; padding:8px;">
                 <div style="color:#b8a84a; font-weight:600; font-size:11px;">🔑 የይለፍ ቃል ማመንጨት</div>
@@ -685,11 +766,167 @@ def get_webapp_html():
         </div>
     </div>
 </div>
+
 <script>
-    {js_code}
+    // ===== ዋና ተግባራት =====
+    function showPage(id) {
+        document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+        document.getElementById('pagesContainer').scrollTop=0;
+        document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+        if(id==='page-home') document.querySelector('.nav-item:nth-child(1)').classList.add('active');
+        else if(id==='page-products') document.querySelector('.nav-item:nth-child(2)').classList.add('active');
+        else if(id==='page-ai') document.querySelector('.nav-item:nth-child(3)').classList.add('active');
+        else if(id==='page-share') document.querySelector('.nav-item:nth-child(4)').classList.add('active');
+        else if(id==='page-jobs') document.querySelector('.nav-item:nth-child(5)').classList.add('active');
+    }
+    
+    function openSocial(url) { window.open(url, '_blank'); }
+    
+    function openAdminLogin() {
+        var pwd = prompt('🔑 የአድሚን የይለፍ ቃል ያስገቡ:');
+        if(pwd === '{ADMIN_PASSWORD}') { showPage('page-admin'); } 
+        else if(pwd !== null) { alert('❌ የተሳሳተ የይለፍ ቃል!'); }
+    }
+    
+    function openEmployeeLogin() {
+        var user = prompt('👤 የተጠቃሚ ስም:');
+        var pwd = prompt('🔑 የይለፍ ቃል:');
+        if(user === 'teamleader' && pwd === '{TEAM_PASSWORD}') { showPage('page-teamleader'); } 
+        else if(user === 'employee' && pwd === '{EMP_PASSWORD}') { showPage('page-employee'); } 
+        else { alert('❌ የተሳሳተ መረጃ!'); }
+    }
+    
+    function askPrice(productId, productName) {
+        fetch('/ask-price', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({product: productName})
+        });
+        alert('💬 ዋጋ ጥያቄ ለ ' + productName + ' ተልኳል! በቅርቡ ምላሽ ያገኛሉ!');
+    }
+    
+    function submitApplication() {
+        var name = document.getElementById('fullName').value;
+        var phone = document.getElementById('phone').value;
+        var email = document.getElementById('email').value;
+        if(!name || !phone) {
+            alert('⚠️ እባክዎ ሙሉ ስም እና ስልክ ቁጥር ያስገቡ!');
+            return;
+        }
+        fetch('/submit-application', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name: name, phone: phone, email: email})
+        }).then(() => {
+            alert('✅ ማመልከቻዎ ተልኳል! በቅርቡ እናገኝዎታለን!');
+            document.getElementById('fullName').value = '';
+            document.getElementById('phone').value = '';
+            document.getElementById('email').value = '';
+        });
+    }
+    
+    function sendUrgent() {
+        var msg = prompt('📝 አስቸኳይ መልእክትዎን ይጻፉ:');
+        if(msg) {
+            fetch('/send-urgent', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({message: msg})
+            });
+            alert('📨 አስቸኳይ መልእክት ለማርሻሎም ተልኳል!');
+        }
+    }
+    
+    function openAdminModal(type) {
+        var titles = {
+            'stats': '📊 ስታቲስቲክስ',
+            'products': '🛍️ ምርቶች',
+            'customers': '👥 ደንበኞች',
+            'addemp': '➕ ሰራተኛ ጨምር',
+            'employees': '📋 ሰራተኞች',
+            'banks': '🏦 ባንክ',
+            'customize': '🎨 ማበጀት',
+            'promo': '📢 ማስታወቂያ',
+            'cameras': '📹 ካሜራዎች',
+            'system': '🔧 ሲስተም'
+        };
+        var contents = {
+            'stats': '📈 ዛሬ ጥያቄ: 24<br>📈 አዳዲስ ደንበኛ: 12<br>📈 ጠቅላላ ደንበኛ: 156<br>📈 ዛሬ ሽያጭ: 8<br>📈 ሰራተኞች: 5<br>📈 ካሜራዎች: 10',
+            'products': '📦 CALUS VC9 - 4G Solar<br>📦 C92 MAX - Smartwatch<br>📦 IMOU Ranger - Dual Lens<br>📦 Speed Dome - 4MP<br>📦 Stellar AOV - Solar',
+            'customers': '👤 አለሙ ተሾመ - 0931556590<br>👤 ሳራ አለሙ - 0912345678<br>👤 ዳዊት ሙሉ - 0923456789<br>... እና 151 ተጨማሪ',
+            'addemp': '👤 ሙሉ ስም: _________<br>📧 የተጠቃሚ ስም: _________<br>🔑 የይለፍ ቃል: _________<br>💼 ስራ: _________<br>💰 ደመወዝ: _________<br><br>✅ ሰራተኛ ለመጨመር ቅጽ ተከፈተ!',
+            'employees': '👤 አብይ አለሙ - CCTV ቴክኒሽያን<br>👤 ሳራ ተሾመ - የኔትወርክ መሐንዲስ<br>👤 ዳዊት ሙሉ - የሽያጭ ተወካይ<br>👤 ማርያም አለሙ - የሽያጭ ተወካይ<br>👤 ሄኖክ ተሾመ - ቴክኒሽያን',
+            'banks': '🏦 ንግድ ባንክ: 1000134567890<br>🏦 አዋሽ ባንክ: 2000245678901<br>🏦 ዳሽን ባንክ: 3000345678902<br>🏦 አብይ ባንክ: 4000456789013',
+            'customize': '🎨 የምርት ስሞች መቀየር<br>🎨 የአዝራሮች አዶዎች መቀየር<br>🎨 የመነሻ ገጽ ቀለም መቀየር',
+            'promo': '📢 የሳምንቱ ቅናሽ! 10% ቅናሽ!<br>📢 Stellar AOV አዲስ ምርት!<br>📢 C92 MAX 15% ቅናሽ!',
+            'cameras': '📷 CALUS VC9 - 4G Solar<br>📷 C92 MAX - Smartwatch<br>📷 IMOU Ranger - Dual Lens<br>📷 Speed Dome - 4MP<br>📷 Stellar AOV - Solar<br>📷 የግቢ ካሜራ<br>📷 የቤት ውስጥ ካሜራ<br>📷 ሶላር ካሜራ<br>📷 የመኪና ካሜራ<br>📷 360° ካሜራ',
+            'system': '🔧 ስሪት: v2.0.1<br>🔧 የተሻሻለ: ጁላይ 2026<br>🔧 የደህንነት: ንቁ<br>🔧 የAI ሁኔታ: በመስራት ላይ<br>🔧 የዳታቤዝ: ተገናኝቷል'
+        };
+        var modal = document.getElementById('adminModal');
+        document.getElementById('adminModalTitle').textContent = titles[type] || '📱 ገጽ';
+        document.getElementById('adminModalBody').innerHTML = contents[type] || 'ይህ ገጽ በቅርቡ ይጨመራል!';
+        modal.classList.add('show');
+    }
+    
+    function closeModal() { document.getElementById('adminModal').classList.remove('show'); }
+    
+    function copyText(text) {
+        navigator.clipboard.writeText(text).then(() => {
+            alert('✅ ተቀድቷል!');
+        }).catch(() => {
+            var input = document.createElement('input');
+            input.value = text;
+            document.body.appendChild(input);
+            input.select();
+            document.execCommand('copy');
+            document.body.removeChild(input);
+            alert('✅ ተቀድቷል!');
+        });
+    }
+    
+    function compareCameras() {
+        var cam1 = document.getElementById('cam1').value;
+        var cam2 = document.getElementById('cam2').value;
+        var result = document.getElementById('compareResult');
+        if(cam1 === cam2) {
+            result.innerHTML = '⚠️ እባክዎ ሁለት የተለያዩ ካሜራዎችን ይምረጡ!';
+            return;
+        }
+        var specs = {
+            'CALUS VC9': {quality:'4MP', range:'50m', network:'4G+WiFi', ptz:'360°'},
+            'C92 MAX': {quality:'4MP', range:'30m', network:'WiFi', ptz:'No'},
+            'Speed Dome': {quality:'4MP', range:'200m', network:'LAN+WiFi', ptz:'32x'},
+            'IMOU Ranger': {quality:'10MP', range:'40m', network:'WiFi', ptz:'No'},
+            'Stellar AOV': {quality:'6MP', range:'60m', network:'4G+WiFi', ptz:'360°'}
+        };
+        var s1 = specs[cam1];
+        var s2 = specs[cam2];
+        result.innerHTML = `
+            <div style="text-align:left;font-size:9px;">
+                <b>${cam1}</b> vs <b>${cam2}</b><br>
+                📷 ጥራት: ${s1.quality} vs ${s2.quality}<br>
+                📏 ርቀት: ${s1.range} vs ${s2.range}<br>
+                🌐 ኔትወርክ: ${s1.network} vs ${s2.network}<br>
+                🔄 PTZ: ${s1.ptz} vs ${s2.ptz}
+            </div>
+        `;
+    }
+    
+    function shareBot(platform) {
+        var url = 'https://t.me/MarshalomTech';
+        var text = '🌟 ሻሎም ቴክኖሎጂ - የእርስዎ የደህንነት አጋር!\\n\\n📱 ይህንን ቦት ይጠቀሙ!\\n🔗 ' + url;
+        if(navigator.share) {
+            navigator.share({title:'ሻሎም ቴክኖሎጂ', text:text, url:url});
+        } else {
+            alert('📤 ማጋሪያ ለ ' + platform + ' ተከፈተ!');
+            copyText(url);
+        }
+    }
+    
     // ===== LANGUAGE SWITCHER =====
-    var translations = {{
-        'am': {{
+    var translations = {
+        'am': {
             'title': 'ሻሎም ቴክኖሎጂ',
             'sub': '✨ የእርስዎ የደህንነት አጋር ✨',
             'm0':'ምርቶች','m1':'ይደውሉ','m2':'ማህበራዊ','m3':'ማጋሪያ','m4':'ዜና','m5':'ንጽጽር','m6':'ክፍት ስራ','m7':'ቅናሽ','m8':'ረዳት','m9':'ድጋፍ','m10':'ማስታወቂያ','m11':'ምክሮች','m12':'ባንክ','m14':'አድሚን','m15':'ቲም ሊደር','m16':'ሰራተኛ',
@@ -709,8 +946,8 @@ def get_webapp_html():
             'promoTitle':'ማስታወቂያ',
             'tipsTitle':'ምክሮች',
             'banksTitle':'ባንክ ሂሳቦች'
-        }},
-        'en': {{
+        },
+        'en': {
             'title': 'Shalom Technology',
             'sub': '✨ Your Security Partner ✨',
             'm0':'Products','m1':'Call','m2':'Social','m3':'Share','m4':'News','m5':'Compare','m6':'Jobs','m7':'Discount','m8':'Assistant','m9':'Support','m10':'Promo','m11':'Tips','m12':'Banks','m14':'Admin','m15':'Team Leader','m16':'Employee',
@@ -730,25 +967,26 @@ def get_webapp_html():
             'promoTitle':'Promo',
             'tipsTitle':'Tips',
             'banksTitle':'Banks'
-        }}
-    }};
-    function switchLanguage(lang) {{
+        }
+    };
+    
+    function switchLanguage(lang) {
         document.querySelectorAll('#langSelector button').forEach(b=>b.classList.remove('active'));
-        document.querySelector('#langSelector button[data-lang=\"'+lang+'\"]').classList.add('active');
+        document.querySelector('#langSelector button[data-lang="'+lang+'"]').classList.add('active');
         var t = translations[lang];
         if(!t) return;
         document.getElementById('mainTitle').textContent = t.title;
         document.getElementById('mainSub').textContent = t.sub;
-        document.querySelectorAll('#page-home .menu-btn [data-key]').forEach(el=>{{
+        document.querySelectorAll('#page-home .menu-btn [data-key]').forEach(el=>{
             var key = el.dataset.key;
             if(t[key]) el.textContent = t[key];
-        }});
+        });
         document.getElementById('promoText').innerHTML = t.promo;
         document.getElementById('promoLink').textContent = t.promoLink;
-        document.querySelectorAll('.bottom-nav .nav-item [data-key]').forEach(el=>{{
+        document.querySelectorAll('.bottom-nav .nav-item [data-key]').forEach(el=>{
             var key = el.dataset.key;
             if(t[key]) el.textContent = t[key];
-        }});
+        });
         document.getElementById('pTitle').textContent = t.pTitle;
         document.getElementById('callTitle').textContent = t.callTitle;
         document.getElementById('socialTitle').textContent = t.socialTitle;
@@ -762,92 +1000,11 @@ def get_webapp_html():
         document.getElementById('promoTitle').textContent = t.promoTitle;
         document.getElementById('tipsTitle').textContent = t.tipsTitle;
         document.getElementById('banksTitle').textContent = t.banksTitle;
-    }}
+    }
 </script>
 </body>
 </html>
     """
-
-# ===== የWebApp ገጽ =====
-@app.route('/webapp')
-def webapp():
-    return render_template_string(get_webapp_html())
-
-# ===== ቴሌግራም Webhook =====
-@app.route('/', methods=['GET', 'POST'])
-def index():
-    if request.method == 'GET':
-        return "Marshalom Bot is running! 🤖"
-    
-    if not TELEGRAM_TOKEN:
-        return "TELEGRAM_TOKEN not set", 500
-
-    try:
-        data = request.get_json(silent=True)
-        if not data or 'message' not in data:
-            return "OK"
-
-        msg = data['message']
-        chat_id = msg['chat']['id']
-        text = msg.get('text', '')
-
-        if text == '/start':
-            webapp_url = f"{BASE_URL}/webapp"
-            requests.post(f"{TELEGRAM_URL}/sendMessage", json={
-                'chat_id': chat_id,
-                'text': "🌟 እንኳን ደህና መጡ ወደ Shalom Technology!\n\n📱 አፕሊኬሽናችንን ለመክፈት ከታች ያለውን ቁልፍ ይጫኑ!",
-                'reply_markup': {
-                    'inline_keyboard': [[{
-                        'text': '🚀 አፕ ክፈት',
-                        'web_app': {'url': webapp_url}
-                    }]]
-                }
-            })
-            return "OK"
-
-        # AI Reply
-        if DEEPSEEK_API_KEY:
-            try:
-                response = requests.post(
-                    "https://api.deepseek.com/chat/completions",
-                    json={
-                        "model": "deepseek-chat",
-                        "messages": [
-                            {"role": "system", "content": "አንተ Marshalom AI ነህ — የ Shalom Technology ረዳት። በአማርኛ መልስ ስጥ።"},
-                            {"role": "user", "content": text}
-                        ],
-                        "max_tokens": 300
-                    },
-                    headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
-                    timeout=25
-                )
-                if response.status_code == 200:
-                    ai_reply = response.json()["choices"][0]["message"]["content"]
-                    requests.post(f"{TELEGRAM_URL}/sendMessage", json={
-                        'chat_id': chat_id,
-                        'text': f"🤖 *Marshalom AI:*\n\n{ai_reply}",
-                        'parse_mode': 'Markdown'
-                    })
-                else:
-                    requests.post(f"{TELEGRAM_URL}/sendMessage", json={
-                        'chat_id': chat_id,
-                        'text': "⏳ እባክዎ ይጠብቁ! በቅርቡ ምላሽ ያገኛሉ።"
-                    })
-            except:
-                requests.post(f"{TELEGRAM_URL}/sendMessage", json={
-                    'chat_id': chat_id,
-                    'text': "⏳ እባክዎ ይጠብቁ! በቅርቡ ምላሽ ያገኛሉ።"
-                })
-        else:
-            requests.post(f"{TELEGRAM_URL}/sendMessage", json={
-                'chat_id': chat_id,
-                'text': "🌟 ማርሻሎም የቴክኖሎጂ ረዳት\n\nሰላም! መልእክትዎን ስላደረሱን እናመሰግናለን። በቅርቡ ምላሽ ያገኛሉ።"
-            })
-
-        return "OK"
-    except Exception as e:
-        print(f"Error: {e}")
-        return "OK"
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
