@@ -6,7 +6,7 @@ import hmac
 import hashlib
 import json
 from urllib.parse import parse_qsl
-import psycopg2
+import psycopg
 from datetime import datetime, timedelta
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -51,7 +51,7 @@ ETHIOPIA_TZ = pytz.timezone("Africa/Addis_Ababa")
 
 # ===== ዳታቤዝ (Postgres) =====
 def get_db_connection():
-    return psycopg2.connect(DATABASE_URL, sslmode='require')
+    return psycopg.connect(DATABASE_URL, sslmode='require')
 
 def init_db():
     if not DATABASE_URL:
