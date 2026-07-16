@@ -85,9 +85,11 @@ def init_db():
                 category TEXT NOT NULL,
                 description TEXT,
                 photo_url TEXT,
+                photos TEXT,
                 created_at TIMESTAMP DEFAULT NOW()
             )
         """)
+        cur.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS photos TEXT")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS customers (
                 user_id BIGINT PRIMARY KEY,
@@ -115,10 +117,12 @@ def init_db():
                 title TEXT NOT NULL,
                 description TEXT,
                 location TEXT,
+                pdf_url TEXT,
                 active BOOLEAN DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW()
             )
         """)
+        cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS pdf_url TEXT")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS job_applications (
                 id SERIAL PRIMARY KEY,
@@ -146,6 +150,36 @@ def init_db():
             )
         """)
         cur.execute("""
+            CREATE TABLE IF NOT EXISTS internal_messages (
+                id SERIAL PRIMARY KEY,
+                sender_name TEXT,
+                sender_username TEXT,
+                sender_user_id BIGINT,
+                recipient_type TEXT,
+                recipient_username TEXT,
+                message TEXT,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS testimonials (
+                id SERIAL PRIMARY KEY,
+                name TEXT,
+                username TEXT,
+                message TEXT,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS portfolio_apps (
+                id SERIAL PRIMARY KEY,
+                name TEXT,
+                photo_url TEXT,
+                file_url TEXT,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS employees (
                 id SERIAL PRIMARY KEY,
                 username TEXT UNIQUE NOT NULL,
@@ -166,6 +200,7 @@ def init_db():
         cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'employee'")
         cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT TRUE")
         cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS telegram_chat_id BIGINT")
+        cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS internal_email TEXT")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS feedback (
                 id SERIAL PRIMARY KEY,
@@ -252,23 +287,34 @@ def get_products(category=None):
         conn = get_db_connection()
         cur = conn.cursor()
         if category:
-            cur.execute("SELECT id, name, category, description, photo_url FROM products WHERE category=%s ORDER BY id DESC", (category,))
+            cur.execute("SELECT id, name, category, description, photo_url, photos FROM products WHERE category=%s ORDER BY id DESC", (category,))
         else:
-            cur.execute("SELECT id, name, category, description, photo_url FROM products ORDER BY id DESC")
+            cur.execute("SELECT id, name, category, description, photo_url, photos FROM products ORDER BY id DESC")
         rows = cur.fetchall()
         cur.close()
         conn.close()
-        return [{"id": r[0], "name": r[1], "category": r[2], "description": r[3], "photo_url": r[4]} for r in rows]
+        result = []
+        for r in rows:
+            try:
+                photos = json.loads(r[5]) if r[5] else ([r[4]] if r[4] else [])
+            except Exception:
+                photos = [r[4]] if r[4] else []
+            result.append({"id": r[0], "name": r[1], "category": r[2], "description": r[3], "photo_url": r[4], "photos": photos})
+        return result
     except Exception as e:
         print(f"DB get_products error: {e}")
         return []
 
-def add_product(name, category, description, photo_url):
+def add_product(name, category, description, photos):
+    """photos: a list of 1-3 photo URLs/base64 strings"""
+    if isinstance(photos, str):
+        photos = [photos] if photos else []
+    photo_url = photos[0] if photos else None
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO products (name, category, description, photo_url) VALUES (%s,%s,%s,%s) RETURNING id",
-        (name, category, description, photo_url)
+        "INSERT INTO products (name, category, description, photo_url, photos) VALUES (%s,%s,%s,%s,%s) RETURNING id",
+        (name, category, description, photo_url, json.dumps(photos, ensure_ascii=False))
     )
     new_id = cur.fetchone()[0]
     conn.commit()
@@ -329,19 +375,19 @@ def get_jobs():
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("SELECT id, title, description, location FROM jobs WHERE active=TRUE ORDER BY id DESC")
+        cur.execute("SELECT id, title, description, location, pdf_url FROM jobs WHERE active=TRUE ORDER BY id DESC")
         rows = cur.fetchall()
         cur.close()
         conn.close()
-        return [{"id": r[0], "title": r[1], "description": r[2], "location": r[3]} for r in rows]
+        return [{"id": r[0], "title": r[1], "description": r[2], "location": r[3], "pdf_url": r[4]} for r in rows]
     except Exception as e:
         print(f"DB get_jobs error: {e}")
         return []
 
-def add_job(title, description, location):
+def add_job(title, description, location, pdf_url=None):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("INSERT INTO jobs (title, description, location) VALUES (%s,%s,%s) RETURNING id", (title, description, location))
+    cur.execute("INSERT INTO jobs (title, description, location, pdf_url) VALUES (%s,%s,%s,%s) RETURNING id", (title, description, location, pdf_url))
     new_id = cur.fetchone()[0]
     conn.commit()
     cur.close()
@@ -524,12 +570,22 @@ def generate_temp_password():
 
 # ===== የሰራተኛ አስተዳደር (Employees) =====
 def add_employee(username, password, full_name, position, salary):
+    first_name_part = full_name.strip().split(' ')[0].lower() if full_name else username
+    # Keep only safe characters for the email-like handle
+    safe_part = ''.join(c for c in first_name_part if c.isalnum()) or username
+    internal_email = f"{safe_part}@marshalom"
     conn = get_db_connection()
     cur = conn.cursor()
+    # Ensure uniqueness by appending a number if needed
+    cur.execute("SELECT COUNT(*) FROM employees WHERE internal_email=%s", (internal_email,))
+    if cur.fetchone()[0] > 0:
+        cur.execute("SELECT COUNT(*) FROM employees WHERE internal_email LIKE %s", (f"{safe_part}%@marshalom",))
+        count = cur.fetchone()[0]
+        internal_email = f"{safe_part}{count+1}@marshalom"
     cur.execute("""
-        INSERT INTO employees (username, password, full_name, position, salary, must_change_password)
-        VALUES (%s,%s,%s,%s,%s,TRUE) RETURNING id
-    """, (username, password, full_name, position, salary))
+        INSERT INTO employees (username, password, full_name, position, salary, must_change_password, internal_email)
+        VALUES (%s,%s,%s,%s,%s,TRUE,%s) RETURNING id
+    """, (username, password, full_name, position, salary, internal_email))
     new_id = cur.fetchone()[0]
     conn.commit()
     cur.close()
@@ -539,39 +595,39 @@ def add_employee(username, password, full_name, position, salary):
 def get_employee_by_credentials(username, password):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT id, full_name, position, salary, bonus, warnings, tasks, role, must_change_password FROM employees WHERE username=%s AND password=%s", (username, password))
+    cur.execute("SELECT id, full_name, position, salary, bonus, warnings, tasks, role, must_change_password, internal_email FROM employees WHERE username=%s AND password=%s", (username, password))
     row = cur.fetchone()
     cur.close()
     conn.close()
     if row:
         return {"id": row[0], "full_name": row[1], "position": row[2], "salary": row[3], "bonus": row[4],
-                "warnings": row[5], "tasks": row[6], "role": row[7], "must_change_password": row[8]}
+                "warnings": row[5], "tasks": row[6], "role": row[7], "must_change_password": row[8], "internal_email": row[9]}
     return None
 
 def get_employee_by_id(employee_id):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT id, username, full_name, position, salary, bonus, warnings, tasks, role, must_change_password, telegram_chat_id FROM employees WHERE id=%s", (employee_id,))
+    cur.execute("SELECT id, username, full_name, position, salary, bonus, warnings, tasks, role, must_change_password, telegram_chat_id, internal_email FROM employees WHERE id=%s", (employee_id,))
     row = cur.fetchone()
     cur.close()
     conn.close()
     if row:
         return {"id": row[0], "username": row[1], "full_name": row[2], "position": row[3], "salary": row[4],
                 "bonus": row[5], "warnings": row[6], "tasks": row[7], "role": row[8],
-                "must_change_password": row[9], "telegram_chat_id": row[10]}
+                "must_change_password": row[9], "telegram_chat_id": row[10], "internal_email": row[11]}
     return None
 
 def get_employee_by_username(username):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT id, username, full_name, position, salary, bonus, warnings, tasks, role, must_change_password, telegram_chat_id FROM employees WHERE username=%s", (username,))
+    cur.execute("SELECT id, username, full_name, position, salary, bonus, warnings, tasks, role, must_change_password, telegram_chat_id, internal_email FROM employees WHERE username=%s", (username,))
     row = cur.fetchone()
     cur.close()
     conn.close()
     if row:
         return {"id": row[0], "username": row[1], "full_name": row[2], "position": row[3], "salary": row[4],
                 "bonus": row[5], "warnings": row[6], "tasks": row[7], "role": row[8],
-                "must_change_password": row[9], "telegram_chat_id": row[10]}
+                "must_change_password": row[9], "telegram_chat_id": row[10], "internal_email": row[11]}
     return None
 
 def list_employees():
@@ -636,6 +692,82 @@ def get_recent_feedback(limit=20):
     cur.close()
     conn.close()
     return [{"name": r[0], "username": r[1], "text": r[2], "created_at": str(r[3])} for r in rows]
+
+# ===== የህዝብ ምስክርነት (Public Testimonials) =====
+def add_testimonial(name, username, message):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO testimonials (name, username, message) VALUES (%s,%s,%s)", (name, username, message))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+def get_testimonials(limit=30):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT name, username, message, created_at FROM testimonials ORDER BY id DESC LIMIT %s", (limit,))
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [{"name": r[0], "username": r[1], "message": r[2], "created_at": str(r[3])} for r in rows]
+
+# ===== የውስጥ መልእክት ሳጥን (Internal Inbox: customer -> team leader / admin) =====
+def send_internal_message(sender_name, sender_username, sender_user_id, recipient_type, recipient_username, message):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO internal_messages (sender_name, sender_username, sender_user_id, recipient_type, recipient_username, message)
+        VALUES (%s,%s,%s,%s,%s,%s)
+    """, (sender_name, sender_username, sender_user_id, recipient_type, recipient_username, message))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+def get_inbox(recipient_type=None, recipient_username=None, limit=50):
+    """If recipient_type='admin', return everything. If team_leader, return only messages
+    addressed to that specific team leader's username."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    if recipient_type == 'admin':
+        cur.execute("SELECT sender_name, sender_username, sender_user_id, recipient_type, recipient_username, message, created_at FROM internal_messages ORDER BY id DESC LIMIT %s", (limit,))
+    else:
+        cur.execute("""
+            SELECT sender_name, sender_username, sender_user_id, recipient_type, recipient_username, message, created_at
+            FROM internal_messages WHERE recipient_username=%s ORDER BY id DESC LIMIT %s
+        """, (recipient_username, limit))
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [{"sender_name": r[0], "sender_username": r[1], "sender_user_id": r[2], "recipient_type": r[3],
+             "recipient_username": r[4], "message": r[5], "created_at": str(r[6])} for r in rows]
+
+# ===== የ Applications ካታሎግ (Portfolio) =====
+def get_portfolio_apps():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT id, name, photo_url, file_url FROM portfolio_apps ORDER BY id DESC")
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [{"id": r[0], "name": r[1], "photo_url": r[2], "file_url": r[3]} for r in rows]
+
+def add_portfolio_app(name, photo_url, file_url):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO portfolio_apps (name, photo_url, file_url) VALUES (%s,%s,%s) RETURNING id", (name, photo_url, file_url))
+    new_id = cur.fetchone()[0]
+    conn.commit()
+    cur.close()
+    conn.close()
+    return new_id
+
+def delete_portfolio_app(app_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM portfolio_apps WHERE id=%s", (app_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
 
 # ===== Telegram WebApp initData ማረጋገጫ (Security) =====
 def verify_telegram_webapp_data(init_data):
@@ -973,7 +1105,7 @@ CATALOG_HTML = """
                     <div class="menu-btn" onclick="showPage('page-social')"><span class="icon">🌐</span><span data-key="m3">ማህበራዊ</span></div>
                     <div class="menu-btn" onclick="showPage('page-share')"><span class="icon">👥</span><span data-key="m4">ማጋሪያ</span></div>
                     <div class="menu-btn" onclick="showPage('page-news')"><span class="icon">📰</span><span data-key="m5">ዜና</span></div>
-                    <div class="menu-btn" onclick="showPage('page-compare')"><span class="icon">⚖️</span><span data-key="m6">ንጽጽር</span></div>
+                    <div class="menu-btn" onclick="showPage('page-applications')"><span class="icon">📱</span><span data-key="m6">Applications</span></div>
                     <div class="menu-btn" onclick="showPage('page-jobs')"><span class="icon">💼</span><span data-key="m7">ክፍት ስራ</span></div>
                     <div class="menu-btn" onclick="showPage('page-discount')"><span class="icon">🎁</span><span data-key="m8">ቅናሽ</span></div>
                     <div class="menu-btn" onclick="showPage('page-ai')"><span class="icon">🤖</span><span data-key="m9">ረዳት</span></div>
@@ -981,7 +1113,7 @@ CATALOG_HTML = """
                     <div class="menu-btn" onclick="showPage('page-promo')"><span class="icon">📢</span><span data-key="m11">ማስታወቂያ</span></div>
                     <div class="menu-btn" onclick="showPage('page-tips')"><span class="icon">💡</span><span data-key="m12">ምክሮች</span></div>
                     <div class="menu-btn" onclick="showPage('page-banks')"><span class="icon">🏦</span><span data-key="m13">ባንክ</span></div>
-                    <div class="menu-btn" onclick="showPage('page-login')"><span class="icon">🔑</span><span data-key="m14">መግቢያ</span></div>
+                    <div class="menu-btn" onclick="showPage('page-feedback')"><span class="icon">💬</span><span data-key="m14">አስተያየት</span></div>
                     <div class="menu-btn" onclick="showPage('page-admin')"><span class="icon">⚙️</span><span data-key="m15">አድሚን</span></div>
                     <div class="menu-btn" onclick="showPage('page-teamleader')"><span class="icon">👔</span><span data-key="m16">ቲም ሊደር</span></div>
                     <div class="menu-btn" onclick="showPage('page-employee')"><span class="icon">👤</span><span data-key="m17">ሰራተኛ</span></div>
@@ -1101,22 +1233,9 @@ CATALOG_HTML = """
         </div>
 
         <!-- COMPARE -->
-        <div class="page" id="page-compare">
-            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>⚖️ <span id="compareTitle">ንጽጽር</span></div>
-            <div class="grid2" style="margin-top:6px;">
-                <div class="card-box" style="text-align:left; cursor:default;">
-                    <div style="color:#b8a84a; font-weight:600; font-size:12px; text-align:center;">CALUS VC9</div>
-                    <div style="color:#c0d8e8; font-size:10px; padding:2px 0; border-bottom:1px solid rgba(255,255,255,0.04);"><span style="color:#8aa3b5;">ጥራት</span><span style="color:#fff; float:right;">4MP</span></div>
-                    <div style="color:#c0d8e8; font-size:10px; padding:2px 0; border-bottom:1px solid rgba(255,255,255,0.04);"><span style="color:#8aa3b5;">ኔትወርክ</span><span style="color:#fff; float:right;">4G+Solar</span></div>
-                    <div style="color:#c0d8e8; font-size:10px; padding:2px 0;"><span style="color:#8aa3b5;">PTZ</span><span style="color:#fff; float:right;">✅ 360°</span></div>
-                </div>
-                <div class="card-box" style="text-align:left; cursor:default;">
-                    <div style="color:#b8a84a; font-weight:600; font-size:12px; text-align:center;">HIKVISION Speed Dome</div>
-                    <div style="color:#c0d8e8; font-size:10px; padding:2px 0; border-bottom:1px solid rgba(255,255,255,0.04);"><span style="color:#8aa3b5;">ጥራት</span><span style="color:#fff; float:right;">4MP</span></div>
-                    <div style="color:#c0d8e8; font-size:10px; padding:2px 0; border-bottom:1px solid rgba(255,255,255,0.04);"><span style="color:#8aa3b5;">ርቀት</span><span style="color:#fff; float:right;">200m</span></div>
-                    <div style="color:#c0d8e8; font-size:10px; padding:2px 0;"><span style="color:#8aa3b5;">PTZ</span><span style="color:#fff; float:right;">✅ 32x</span></div>
-                </div>
-            </div>
+        <div class="page" id="page-applications">
+            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>📱 <span id="applicationsTitle">Applications</span></div>
+            <div id="applicationsGrid" class="product-grid"><p class="empty-msg">⏳...</p></div>
         </div>
 
         <!-- JOBS -->
@@ -1204,16 +1323,23 @@ CATALOG_HTML = """
         </div>
 
         <!-- LOGIN -->
-        <div class="page" id="page-login">
-            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>🔑 <span id="loginTitle">መግቢያ</span></div>
-            <div style="background:rgba(255,255,255,0.03); border-radius:16px; padding:16px 12px; border:1px solid rgba(74,158,255,0.1);">
-                <div style="text-align:center; font-size:28px; margin-bottom:4px;">🔐</div>
-                <div style="color:#c0d8e8; font-size:12px; text-align:center; margin-bottom:6px;" id="loginSub">ለቲም ሊደር እና ሰራተኞች (ባለቤት ራሱ በራስ-ሰር ይታወቃል)</div>
-                <input type="text" id="loginUsername" placeholder="Username" class="input-field">
-                <input type="password" id="loginPassword" placeholder="Password" class="input-field">
-                <button class="btn-primary" onclick="doLogin()" id="loginBtn">🔓 ግባ</button>
-                <div id="loginMsg" style="font-size:11px; text-align:center; margin-top:6px; color:#ff6b6b;"></div>
+        <div class="page" id="page-feedback">
+            <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>💬 <span id="feedbackTitle">አስተያየት እና ምስክርነት</span></div>
+
+            <div style="background:rgba(255,255,255,0.03); border-radius:12px; padding:10px; margin-bottom:10px;">
+                <div style="color:#b8a84a; font-size:12px; font-weight:600; margin-bottom:6px;">✍️ የእርስዎን አስተያየት ይላኩ (ለሁሉም ይታያል)</div>
+                <textarea id="testimonialInput" class="input-field" rows="2" placeholder="ስለ አገልግሎታችን ምን ይላሉ?"></textarea>
+                <button class="btn-primary" onclick="submitTestimonial()">📤 ላክ</button>
             </div>
+
+            <div style="background:rgba(74,158,255,0.04); border-radius:12px; padding:10px; margin-bottom:10px; border:1px solid rgba(74,158,255,0.08);">
+                <div style="color:#4a9eff; font-size:12px; font-weight:600; margin-bottom:6px;">📩 ወደ አድሚን/ቲም ሊደር የግል መልእክት</div>
+                <textarea id="privateMessageInput" class="input-field" rows="2" placeholder="መልእክትዎን ይጻፉ..."></textarea>
+                <button class="btn-primary gold" onclick="submitPrivateMessage()">📤 ላክ (ወደ አድሚን)</button>
+            </div>
+
+            <div class="section-title">🌟 የደንበኞቻችን ምስክርነት</div>
+            <div id="testimonialsList"><p class="empty-msg">⏳...</p></div>
         </div>
 
         <!-- ADMIN -->
@@ -1558,15 +1684,87 @@ async function loadBanks() {
     const qr = await qrRes.json();
     const el = document.getElementById('banksList');
     el.innerHTML = banks.map(b => `
-        <div class="card-box" style="cursor:default; text-align:left; margin-bottom:6px;">
-            <div style="color:#b8a84a; font-weight:600; font-size:12px;">${b.bank}</div>
-            <div style="color:#fff; font-size:14px; font-weight:700;">${b.number}</div>
-            <div style="color:#8aa3b5; font-size:10px;">${b.owner}</div>
+        <div class="card-box" style="cursor:default; text-align:left; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
+            <div>
+                <div style="color:#b8a84a; font-weight:600; font-size:12px;">${b.bank}</div>
+                <div style="color:#fff; font-size:14px; font-weight:700;">${b.number}</div>
+                <div style="color:#8aa3b5; font-size:10px;">${b.owner}</div>
+            </div>
+            <button onclick="copyBankNumber('${b.number}', this)" style="background:#2b3a4a; border:none; color:#4a9eff; padding:6px 10px; border-radius:8px; font-size:10px;">📋 ኮፒ</button>
         </div>
     `).join('');
     if (qr) {
         el.innerHTML += `<div style="text-align:center; margin-top:10px;"><img src="${qr}" style="width:160px; border-radius:10px;" /><div style="font-size:10px; color:#8aa3b5; margin-top:4px;">QR ኮድ ተጠቅመው ይክፍሉ</div></div>`;
     }
+}
+function copyBankNumber(number, btn) {
+    navigator.clipboard.writeText(number).then(() => {
+        const original = btn.textContent;
+        btn.textContent = '✅ ተኮፒዷል!';
+        setTimeout(() => { btn.textContent = original; }, 1500);
+    }).catch(() => {
+        // Fallback for older webviews without clipboard API
+        const ta = document.createElement('textarea');
+        ta.value = number;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        btn.textContent = '✅ ተኮፒዷል!';
+        setTimeout(() => { btn.textContent = '📋 ኮፒ'; }, 1500);
+    });
+}
+
+// ===== APPLICATIONS (Portfolio) =====
+async function loadApplications() {
+    const res = await fetch('/api/portfolio');
+    const apps = await res.json();
+    const el = document.getElementById('applicationsGrid');
+    if (!apps.length) { el.innerHTML = '<p class="empty-msg">ገና ምንም Application የለም</p>'; return; }
+    el.innerHTML = apps.map(a => `
+        <div class="product-card">
+            <img class="promo-img" src="${a.photo_url || '/static/logo.jpg'}" />
+            <div class="info">
+                <div class="card-name">${a.name}</div>
+                ${a.file_url ? `<a href="${a.file_url}" target="_blank" class="ask-btn" style="display:block; text-decoration:none; box-sizing:border-box;">⬇️ አውርድ</a>` : ''}
+            </div>
+        </div>
+    `).join('');
+}
+
+// ===== FEEDBACK / TESTIMONIALS / INBOX =====
+async function loadTestimonials() {
+    const res = await fetch('/api/testimonials');
+    const items = await res.json();
+    const el = document.getElementById('testimonialsList');
+    if (!items.length) { el.innerHTML = '<p class="empty-msg">ገና ምንም አስተያየት የለም</p>'; return; }
+    el.innerHTML = items.map(t => `
+        <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; margin-bottom:6px; border-left:3px solid #b8a84a;">
+            <div style="color:#b8a84a; font-size:11px; font-weight:600;">${t.name} ${t.username ? '(@'+t.username+')' : ''}</div>
+            <div style="color:#c0d8e8; font-size:11px; margin-top:2px;">${t.message}</div>
+        </div>
+    `).join('');
+}
+async function submitTestimonial() {
+    const message = document.getElementById('testimonialInput').value.trim();
+    if (!message) return;
+    await fetch('/api/testimonials/add', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({initData, message})
+    });
+    document.getElementById('testimonialInput').value = '';
+    loadTestimonials();
+    alert('🙏 አመሰግናለሁ! አስተያየትዎ ታይቷል።');
+}
+async function submitPrivateMessage() {
+    const message = document.getElementById('privateMessageInput').value.trim();
+    if (!message) return;
+    await fetch('/api/message/send', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({initData, recipient_type: 'admin', message})
+    });
+    document.getElementById('privateMessageInput').value = '';
+    alert('✅ መልእክትዎ ተልኳል!');
 }
 
 // ===== SHARE =====
@@ -1986,6 +2184,8 @@ loadProducts();
 loadJobs();
 loadPromos();
 loadBanks();
+loadApplications();
+loadTestimonials();
 setInterval(maybeRotateProducts, 60000);
 if (window.location.hash) {
     const targetPage = window.location.hash.replace('#', '');
@@ -2152,7 +2352,84 @@ def api_admin_generate_credentials():
     add_employee(username, temp_password, full_name, position, body.get('salary', ''))
     if role == 'team_leader':
         set_employee_role(username, 'team_leader')
-    return jsonify({"ok": True, "username": username, "password": temp_password})
+    emp = get_employee_by_username(username)
+    return jsonify({"ok": True, "username": username, "password": temp_password, "internal_email": emp.get('internal_email') if emp else None})
+
+# ===== የህዝብ ምስክርነት (Public Testimonials) =====
+@app.route('/api/testimonials')
+def api_testimonials():
+    return jsonify(get_testimonials())
+
+@app.route('/api/testimonials/add', methods=['POST'])
+def api_testimonials_add():
+    body = request.get_json(silent=True) or {}
+    user = verify_telegram_webapp_data(body.get('initData', ''))
+    name = user.get('first_name', '') if user else body.get('name', 'ስም የለም')
+    username = user.get('username', '') if user else ''
+    message = body.get('message', '').strip()
+    if not message:
+        return jsonify({"ok": False}), 400
+    add_testimonial(name, username, message)
+    return jsonify({"ok": True})
+
+# ===== የውስጥ መልእክት ሳጥን (Internal Inbox) =====
+@app.route('/api/message/send', methods=['POST'])
+def api_message_send():
+    body = request.get_json(silent=True) or {}
+    user = verify_telegram_webapp_data(body.get('initData', ''))
+    sender_name = user.get('first_name', '') if user else body.get('name', 'ስም የለም')
+    sender_username = user.get('username', '') if user else ''
+    sender_user_id = user.get('id') if user else None
+    recipient_type = body.get('recipient_type', 'admin')  # 'admin' or 'team_leader'
+    recipient_username = body.get('recipient_username')  # required if team_leader
+    message = body.get('message', '').strip()
+    if not message:
+        return jsonify({"ok": False}), 400
+    send_internal_message(sender_name, sender_username, sender_user_id, recipient_type, recipient_username, message)
+    # Also notify live via Telegram
+    target_chat = OWNER_CHAT_ID
+    if recipient_type == 'team_leader' and recipient_username:
+        emp = get_employee_by_username(recipient_username)
+        if emp and emp.get('telegram_chat_id'):
+            target_chat = emp['telegram_chat_id']
+    requests.post(f"{TELEGRAM_URL}/sendMessage", json={
+        'chat_id': target_chat,
+        'text': f"📩 አዲስ የውስጥ መልእክት!\nከ: {sender_name} (@{sender_username or 'የለም'})\nመልእክት: {message}"
+    })
+    return jsonify({"ok": True})
+
+@app.route('/api/message/inbox', methods=['POST'])
+def api_message_inbox():
+    body = request.get_json(silent=True) or {}
+    if is_authorized_manager(body):
+        init_data = request.headers.get('X-Init-Data', '')
+        user = verify_telegram_webapp_data(init_data)
+        if user and is_admin_chat(user.get('id')):
+            return jsonify(get_inbox(recipient_type='admin'))
+        # team leader authorized via tl_username/tl_password
+        tl_username = body.get('tl_username')
+        return jsonify(get_inbox(recipient_type='team_leader', recipient_username=tl_username))
+    return jsonify({"error": "forbidden"}), 403
+
+# ===== Applications ካታሎግ (Portfolio) =====
+@app.route('/api/portfolio')
+def api_portfolio():
+    return jsonify(get_portfolio_apps())
+
+@app.route('/api/admin/portfolio', methods=['POST'])
+def api_admin_add_portfolio():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    body = request.get_json(silent=True) or {}
+    new_id = add_portfolio_app(body.get('name'), body.get('photo_url'), body.get('file_url'))
+    return jsonify({"ok": True, "id": new_id})
+
+@app.route('/api/admin/portfolio/<int:app_id>', methods=['DELETE'])
+def api_admin_delete_portfolio(app_id):
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    delete_portfolio_app(app_id)
+    return jsonify({"ok": True})
 
 @app.route('/api/employee/login', methods=['POST'])
 def api_employee_login():
@@ -2384,7 +2661,7 @@ def api_admin_add_job():
     if not require_admin():
         return jsonify({"error": "forbidden"}), 403
     body = request.get_json(silent=True) or {}
-    new_id = add_job(body.get('title'), body.get('description'), body.get('location'))
+    new_id = add_job(body.get('title'), body.get('description'), body.get('location'), body.get('pdf_url'))
     return jsonify({"ok": True, "id": new_id})
 
 @app.route('/api/admin/jobs/<int:job_id>', methods=['DELETE'])
@@ -2419,7 +2696,9 @@ def api_admin_add_product():
     if not require_admin():
         return jsonify({"error": "forbidden"}), 403
     body = request.get_json(silent=True) or {}
-    new_id = add_product(body.get('name'), body.get('category'), body.get('description'), body.get('photo_url'))
+    photos = body.get('photos') or ([body.get('photo_url')] if body.get('photo_url') else [])
+    photos = [p for p in photos if p][:3]  # up to 3 photos
+    new_id = add_product(body.get('name'), body.get('category'), body.get('description'), photos)
     return jsonify({"ok": True, "id": new_id})
 
 @app.route('/api/admin/products/<int:product_id>', methods=['DELETE'])
@@ -2430,6 +2709,68 @@ def api_admin_delete_product(product_id):
     return jsonify({"ok": True})
 
 # ===== ዋና ሃንድለር =====
+def download_telegram_photo_as_base64(file_id):
+    """Downloads a Telegram photo server-side and returns it as a base64 data URI,
+    so we never expose the bot token in an <img src> that reaches the browser."""
+    try:
+        file_info = requests.get(f"{TELEGRAM_URL}/getFile", params={'file_id': file_id}, timeout=15).json()
+        if not file_info.get('ok'):
+            return None
+        file_path = file_info['result']['file_path']
+        file_bytes = requests.get(f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}", timeout=20).content
+        import base64 as _b64
+        ext = file_path.split('.')[-1] if '.' in file_path else 'jpg'
+        return f"data:image/{ext};base64,{_b64.b64encode(file_bytes).decode()}"
+    except Exception as e:
+        print(f"download_telegram_photo_as_base64 error: {e}")
+        return None
+
+def handle_ai_channel_post(post):
+    """Reads a new post from @MarshalomAI and routes it:
+    #ምርት -> auto-added product | #ስራ -> auto-added job | no tag -> auto-promo to @MarshalomTech"""
+    chat = post.get('chat', {})
+    chat_username = f"@{chat.get('username', '')}" if chat.get('username') else str(chat.get('id'))
+    if chat_username != AI_CHANNEL_ID and str(chat.get('id')) != AI_CHANNEL_ID:
+        return  # not the channel we care about
+
+    caption = post.get('caption') or post.get('text') or ''
+    photos = post.get('photo')  # list of PhotoSize, largest last
+    photo_b64 = None
+    if photos:
+        largest = photos[-1]
+        photo_b64 = download_telegram_photo_as_base64(largest['file_id'])
+
+    lines = [l.strip() for l in caption.split('\n') if l.strip()]
+    if not lines:
+        return
+
+    if '#ምርት' in caption or '#product' in caption.lower():
+        lines = [l for l in lines if '#ምርት' not in l and '#product' not in l.lower()]
+        if not lines:
+            return
+        name = lines[0]
+        category = lines[1] if len(lines) > 1 else 'ሌላ'
+        description = '\n'.join(lines[2:]) if len(lines) > 2 else ''
+        photos_list = [photo_b64] if photo_b64 else []
+        add_product(name, category, description, photos_list)
+        requests.post(f"{TELEGRAM_URL}/sendMessage", json={'chat_id': OWNER_CHAT_ID, 'text': f"✅ አዲስ ምርት ከ AI ቻናል ተጨመረ: {name}"})
+
+    elif '#ስራ' in caption or '#job' in caption.lower():
+        lines = [l for l in lines if '#ስራ' not in l and '#job' not in l.lower()]
+        if not lines:
+            return
+        title = lines[0]
+        location = lines[1] if len(lines) > 1 else ''
+        description = '\n'.join(lines[2:]) if len(lines) > 2 else ''
+        add_job(title, description, location)
+        requests.post(f"{TELEGRAM_URL}/sendMessage", json={'chat_id': OWNER_CHAT_ID, 'text': f"✅ አዲስ ስራ ከ AI ቻናል ተጨመረ: {title}"})
+
+    else:
+        # No hashtag - treat as a general promotion, auto-enhance/translate, add to rotation, and post immediately
+        count = add_promo(caption)
+        post_random_promo()
+        requests.post(f"{TELEGRAM_URL}/sendMessage", json={'chat_id': OWNER_CHAT_ID, 'text': f"✅ አዲስ ማስታወቂያ ከ AI ቻናል ወደ {CHANNEL_ID} ተልኳል"})
+
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'GET':
@@ -2440,6 +2781,12 @@ def index():
 
     try:
         data = request.get_json(silent=True)
+
+        # ===== Handle posts from @MarshalomAI channel (auto-import products/jobs/promos) =====
+        if data and 'channel_post' in data:
+            handle_ai_channel_post(data['channel_post'])
+            return "OK"
+
         if not data or 'message' not in data:
             return "OK"
 
