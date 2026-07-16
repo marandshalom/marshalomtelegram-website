@@ -1,21 +1,19 @@
-from flask import Flask, request, jsonify, render_template_string, send_from_directory
+from flask import Flask, request, jsonify, render_template_string
 import requests
 import os
 import random
 import hmac
 import hashlib
 import json
-import base64
 from urllib.parse import parse_qsl
 import psycopg
 from datetime import datetime, timedelta
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
-from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 
-# ===== ደህንነቱ የተጠበቀ - ከ Render Environment Variables ይነበባል =====
+# ===== ከ Render Environment Variables ይነበባል =====
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 OWNER_CHAT_ID = os.environ.get("OWNER_CHAT_ID")
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
@@ -34,163 +32,6 @@ TECHNICAL_PASSWORD = os.environ.get("TECHNICAL_PASSWORD")
 TELEGRAM_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 ETHIOPIA_TZ = pytz.timezone("Africa/Addis_Ababa")
 
-# ===== ለፋይል መጫኛ ማዋቀር =====
-UPLOAD_FOLDER = 'uploads'
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
-ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg', 'gif'}
-
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-# ===== የቋንቋ ስርዓት (4 ቋንቋዎች) =====
-LANGUAGES = {
-    'am': 'አማርኛ',
-    'en': 'English',
-    'ti': 'ትግርኛ',
-    'or': 'Afaan Oromoo'
-}
-
-DEFAULT_LANG = 'am'
-
-def get_translation(text_key, lang='am'):
-    """በተመረጠው ቋንቋ የተረጎመ ጽሑፍ ይመልሳል"""
-    translations = {
-        'welcome': {
-            'am': 'እንኳን ደህና መጡ!',
-            'en': 'Welcome!',
-            'ti': 'እንኳዕ ደሓን መጻእኩም!',
-            'or': 'Baga nagaan dhufte!'
-        },
-        'invite': {
-            'am': 'የእኛ ሞባይል አፕሊኬሽን እንዲከፍቱ እንጋብዘዎታለን',
-            'en': 'We invite you to open our mobile application',
-            'ti': 'ናይ ሞባይል ኣፕሊኬሽንና ክትከፍቱ ንዕድመኩም',
-            'or': 'App mobile keenya banuuf si afeerra'
-        },
-        'click_to_open': {
-            'am': 'ለመከፈት እዚህ ጠቅ አድርጉ',
-            'en': 'Click here to open',
-            'ti': 'ንምክፋት አብዚ ጠውቕ',
-            'or': 'Banuuf asi tuqi'
-        },
-        'products': {
-            'am': 'ምርቶች',
-            'en': 'Products',
-            'ti': 'ምርቶች',
-            'or': 'Oomishaalee'
-        },
-        'jobs': {
-            'am': 'ክፍት ስራ',
-            'en': 'Jobs',
-            'ti': 'ክፍቲ ስራሕ',
-            'or': 'Hojii Banaa'
-        },
-        'contact': {
-            'am': 'ይደውሉ',
-            'en': 'Call',
-            'ti': 'ደውሉ',
-            'or': 'Bilbilaa'
-        },
-        'social': {
-            'am': 'ማህበራዊ',
-            'en': 'Social',
-            'ti': 'ማህበራዊ',
-            'or': 'Hawaasa'
-        },
-        'home': {
-            'am': 'መነሻ',
-            'en': 'Home',
-            'ti': 'መነሻ',
-            'or': 'Mana'
-        },
-        'back': {
-            'am': '‹ ተመለስ',
-            'en': '‹ Back',
-            'ti': '‹ ተመለስ',
-            'or': '‹ Duuba'
-        },
-        'share': {
-            'am': 'ማጋሪያ',
-            'en': 'Share',
-            'ti': 'ኣጋሩ',
-            'or': 'Qooda'
-        },
-        'news': {
-            'am': 'ዜና',
-            'en': 'News',
-            'ti': 'ዜና',
-            'or': 'Oduu'
-        },
-        'discount': {
-            'am': 'ቅናሽ',
-            'en': 'Discount',
-            'ti': 'ቅናሽ',
-            'or': 'Hir\'aa'
-        },
-        'assistant': {
-            'am': 'ረዳት',
-            'en': 'Assistant',
-            'ti': 'ረዳት',
-            'or': 'Gargaaraa'
-        },
-        'support': {
-            'am': 'ድጋፍ',
-            'en': 'Support',
-            'ti': 'ድጋፍ',
-            'or': 'Deggersa'
-        },
-        'promo': {
-            'am': 'ማስታወቂያ',
-            'en': 'Promo',
-            'ti': 'ማስታወቂያ',
-            'or': 'Beeksisa'
-        },
-        'tips': {
-            'am': 'ምክሮች',
-            'en': 'Tips',
-            'ti': 'ምኽርታት',
-            'or': 'Gorsa'
-        },
-        'banks': {
-            'am': 'ባንክ',
-            'en': 'Banks',
-            'ti': 'ባንክ',
-            'or': 'Baankii'
-        },
-        'feedback': {
-            'am': 'አስተያየት',
-            'en': 'Feedback',
-            'ti': 'ኣስተያየት',
-            'or': 'Yaada'
-        },
-        'admin': {
-            'am': 'አድሚን',
-            'en': 'Admin',
-            'ti': 'ኣድሚን',
-            'or': 'Admin'
-        },
-        'teamleader': {
-            'am': 'ቲም ሊደር',
-            'en': 'Team Leader',
-            'ti': 'መራሒ ጉጅለ',
-            'or': 'Hoogganaa'
-        },
-        'employee': {
-            'am': 'ሰራተኛ',
-            'en': 'Employee',
-            'ti': 'ሰራተኛ',
-            'or': 'Hojjetaa'
-        },
-        'applications': {
-            'am': 'Applications',
-            'en': 'Applications',
-            'ti': 'መተግበሪያታት',
-            'or': 'Applikashinii'
-        }
-    }
-    return translations.get(text_key, {}).get(lang, translations.get(text_key, {}).get(DEFAULT_LANG, text_key))
-
 def send_with_webapp_button(chat_id, text, button_text, webapp_path):
     webapp_url = f"{BASE_URL.rstrip('/')}{webapp_path}"
     result = requests.post(f"{TELEGRAM_URL}/sendMessage", json={
@@ -207,13 +48,13 @@ def send_with_webapp_button(chat_id, text, button_text, webapp_path):
         })
     return resp_json
 
-# ===== ዳታቤዝ (Postgres) =====
+# ===== ዳታቤዝ =====
 def get_db_connection():
     return psycopg.connect(DATABASE_URL, sslmode='require')
 
 def init_db():
     if not DATABASE_URL:
-        print("⚠️ DATABASE_URL not set - storage disabled")
+        print("⚠️ DATABASE_URL not set")
         return
     try:
         conn = get_db_connection()
@@ -316,7 +157,7 @@ def init_db():
                 bonus TEXT DEFAULT '', warnings TEXT DEFAULT '',
                 tasks TEXT DEFAULT '', role TEXT DEFAULT 'employee',
                 must_change_password BOOLEAN DEFAULT TRUE,
-                telegram_chat_id BIGINT, internal_email TEXT, photo_url TEXT,
+                telegram_chat_id BIGINT, internal_email TEXT,
                 created_at TIMESTAMP DEFAULT NOW()
             )
         """)
@@ -324,7 +165,6 @@ def init_db():
         cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT TRUE")
         cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS telegram_chat_id BIGINT")
         cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS internal_email TEXT")
-        cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS photo_url TEXT")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS feedback (
                 id SERIAL PRIMARY KEY,
@@ -710,52 +550,49 @@ def add_employee(username, password, full_name, position, salary):
 def get_employee_by_credentials(username, password):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT id, full_name, position, salary, bonus, warnings, tasks, role, must_change_password, internal_email, photo_url FROM employees WHERE username=%s AND password=%s", (username, password))
+    cur.execute("SELECT id, full_name, position, salary, bonus, warnings, tasks, role, must_change_password, internal_email FROM employees WHERE username=%s AND password=%s", (username, password))
     row = cur.fetchone()
     cur.close()
     conn.close()
     if row:
         return {"id": row[0], "full_name": row[1], "position": row[2], "salary": row[3], "bonus": row[4],
-                "warnings": row[5], "tasks": row[6], "role": row[7], "must_change_password": row[8], 
-                "internal_email": row[9], "photo_url": row[10]}
+                "warnings": row[5], "tasks": row[6], "role": row[7], "must_change_password": row[8], "internal_email": row[9]}
     return None
 
 def get_employee_by_id(employee_id):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT id, username, full_name, position, salary, bonus, warnings, tasks, role, must_change_password, telegram_chat_id, internal_email, photo_url FROM employees WHERE id=%s", (employee_id,))
+    cur.execute("SELECT id, username, full_name, position, salary, bonus, warnings, tasks, role, must_change_password, telegram_chat_id, internal_email FROM employees WHERE id=%s", (employee_id,))
     row = cur.fetchone()
     cur.close()
     conn.close()
     if row:
         return {"id": row[0], "username": row[1], "full_name": row[2], "position": row[3], "salary": row[4],
                 "bonus": row[5], "warnings": row[6], "tasks": row[7], "role": row[8],
-                "must_change_password": row[9], "telegram_chat_id": row[10], 
-                "internal_email": row[11], "photo_url": row[12]}
+                "must_change_password": row[9], "telegram_chat_id": row[10], "internal_email": row[11]}
     return None
 
 def get_employee_by_username(username):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT id, username, full_name, position, salary, bonus, warnings, tasks, role, must_change_password, telegram_chat_id, internal_email, photo_url FROM employees WHERE username=%s", (username,))
+    cur.execute("SELECT id, username, full_name, position, salary, bonus, warnings, tasks, role, must_change_password, telegram_chat_id, internal_email FROM employees WHERE username=%s", (username,))
     row = cur.fetchone()
     cur.close()
     conn.close()
     if row:
         return {"id": row[0], "username": row[1], "full_name": row[2], "position": row[3], "salary": row[4],
                 "bonus": row[5], "warnings": row[6], "tasks": row[7], "role": row[8],
-                "must_change_password": row[9], "telegram_chat_id": row[10],
-                "internal_email": row[11], "photo_url": row[12]}
+                "must_change_password": row[9], "telegram_chat_id": row[10], "internal_email": row[11]}
     return None
 
 def list_employees():
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT id, username, full_name, position, role, internal_email, photo_url FROM employees ORDER BY id")
+    cur.execute("SELECT id, username, full_name, position, role FROM employees ORDER BY id")
     rows = cur.fetchall()
     cur.close()
     conn.close()
-    return [{"id": r[0], "username": r[1], "full_name": r[2], "position": r[3], "role": r[4], "internal_email": r[5], "photo_url": r[6]} for r in rows]
+    return [{"id": r[0], "username": r[1], "full_name": r[2], "position": r[3], "role": r[4]} for r in rows]
 
 def update_employee_field(username, field, value, append=False):
     conn = get_db_connection()
@@ -883,20 +720,6 @@ def delete_portfolio_app(app_id):
     conn.commit()
     cur.close()
     conn.close()
-
-def get_default_apps():
-    return [
-        {'name': 'Marshalom POS', 'photo': '📱', 'file': None},
-        {'name': 'Shalom CRM', 'photo': '📱', 'file': None},
-        {'name': 'Tech Store', 'photo': '📱', 'file': None},
-        {'name': 'Security Monitor', 'photo': '📱', 'file': None},
-        {'name': 'Inventory Pro', 'photo': '📱', 'file': None},
-        {'name': 'HR Manager', 'photo': '📱', 'file': None},
-        {'name': 'Finance Tracker', 'photo': '📱', 'file': None},
-        {'name': 'Sales Dashboard', 'photo': '📱', 'file': None},
-        {'name': 'Customer Care', 'photo': '📱', 'file': None},
-        {'name': 'Analytics Pro', 'photo': '📱', 'file': None}
-    ]
 
 # ===== Telegram WebApp initData ማረጋገጫ =====
 def verify_telegram_webapp_data(init_data):
@@ -1072,40 +895,11 @@ def post_random_promo():
 
 def schedule_daily_promos():
     scheduler = BackgroundScheduler(timezone=ETHIOPIA_TZ)
-    post_hours = get_config('auto_promo_hours', [9, 12, 15, 17, 19])
+    post_hours = [9, 12, 15, 17, 19]
     for hour in post_hours:
         scheduler.add_job(post_random_promo, 'cron', hour=hour, minute=random.randint(0, 30))
     scheduler.start()
     print("✅ Promo scheduler started.")
-
-# ===== ራስ-ሰር ምርት ፎቶ መቀየር =====
-def auto_update_product_photos():
-    """በየ8 ሰዓቱ የምርት ፎቶዎችን ከ@MarshalomAI ቻናል ያመጣል"""
-    try:
-        url = f"{TELEGRAM_URL}/getUpdates"
-        params = {'chat_id': AI_CHANNEL_ID, 'limit': 10}
-        response = requests.get(url, params=params)
-        if response.status_code != 200:
-            return
-        data = response.json()
-        if not data.get('ok'):
-            return
-        for update in data.get('result', []):
-            if 'channel_post' in update:
-                post = update['channel_post']
-                caption = post.get('caption') or post.get('text') or ''
-                if '#ምርት' in caption or '#product' in caption.lower():
-                    photos = post.get('photo')
-                    if photos:
-                        handle_ai_channel_post(post)
-    except Exception as e:
-        print(f"Auto update error: {e}")
-
-def schedule_auto_update():
-    scheduler = BackgroundScheduler(timezone=ETHIOPIA_TZ)
-    scheduler.add_job(auto_update_product_photos, 'interval', hours=8)
-    scheduler.start()
-    print("✅ Auto update scheduler started.")
 
 # ===== 🛍️ የምርት ካታሎግ Mini App =====
 CATALOG_HTML = """
@@ -1125,7 +919,24 @@ CATALOG_HTML = """
     .header .lang-selector { display: flex; gap: 4px; }
     .header .lang-selector button { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); color: #8aa3b5; padding: 3px 8px; border-radius: 12px; font-size: 10px; cursor: pointer; }
     .header .lang-selector button.active { background: rgba(74,158,255,0.2); border-color: #4a9eff; color: #4a9eff; }
-    .header .logo-img { width: 40px; height: 40px; border-radius: 10px; object-fit: cover; box-shadow: 0 2px 10px rgba(0,0,0,0.4); }
+    .header .logo-img { width: 40px; height: 40px; border-radius: 10px; object-fit: cover; box-shadow: 0 2px 10px rgba(0,0,0,0.4); animation: logoSpin 6s ease-in-out infinite; }
+    @keyframes logoSpin {
+        0% { transform: rotateY(0deg) rotateX(0deg); }
+        25% { transform: rotateY(360deg) rotateX(0deg); }
+        50% { transform: rotateY(360deg) rotateX(360deg); }
+        100% { transform: rotateY(360deg) rotateX(360deg); }
+    }
+    .menu-btn { transition: transform 0.2s ease; }
+    .menu-btn:active { transform: scale(0.93); }
+    .menu-btn .icon { transition: transform 0.3s ease; display: inline-block; }
+    .menu-btn:hover .icon { transform: scale(1.2) rotate(8deg); }
+    .promo-anim-card { animation: slideInFade 0.5s ease; }
+    @keyframes slideInFade { from { opacity:0; transform: translateX(-15px); } to { opacity:1; transform: translateX(0); } }
+    .product-card { animation: productRotateIn 0.6s ease; cursor: pointer; }
+    @keyframes productRotateIn { from { opacity:0; transform: rotateY(15deg) scale(0.9); } to { opacity:1; transform: rotateY(0) scale(1); } }
+    .fullscreen-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.92); z-index:999; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:20px; }
+    .fullscreen-overlay img { max-width:100%; max-height:60%; border-radius:12px; }
+    .fullscreen-overlay .close-fs { position:absolute; top:20px; right:20px; font-size:28px; color:#fff; cursor:pointer; }
     .header h1 { font-size: 18px; font-weight: 700; background: linear-gradient(90deg,#4a9eff,#7ac7ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-top: 4px; }
     .header .sub { font-size: 11px; color: #8aa3b5; }
     .pages { padding: 6px 0 80px; }
@@ -1134,7 +945,6 @@ CATALOG_HTML = """
     @keyframes fadeSlide { 0% { opacity: 0; transform: translateY(10px); } 100% { opacity: 1; transform: translateY(0); } }
     .page-title { font-size: 15px; font-weight: 600; color: #fff; display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
     .back-btn { background: rgba(255,255,255,0.08); border: none; color: #fff; font-size: 18px; padding: 2px 12px; border-radius: 30px; cursor: pointer; }
-    .home-btn { background: rgba(255,255,255,0.08); border: none; color: #fff; font-size: 14px; padding: 2px 12px; border-radius: 30px; cursor: pointer; }
     .menu-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 12px; }
     .menu-btn { border-radius: 14px; padding: 10px 4px; text-align: center; font-size: 9px; font-weight: 500; cursor: pointer; color: #e0edf5; border: none; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
     .menu-btn .icon { font-size: 22px; display: block; margin-bottom: 2px; }
@@ -1181,9 +991,6 @@ CATALOG_HTML = """
     .stat-num { font-size: 16px; font-weight: 700; }
     .stat-label { font-size: 7px; color: #8aa3b5; }
     .empty-msg { text-align:center; opacity:0.6; margin-top: 30px; font-size: 12px; }
-    .fullscreen-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.92); z-index:999; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:20px; }
-    .fullscreen-overlay img { max-width:100%; max-height:60%; border-radius:12px; }
-    .fullscreen-overlay .close-fs { position:absolute; top:20px; right:20px; font-size:28px; color:#fff; cursor:pointer; }
 </style>
 </head>
 <body>
@@ -1204,7 +1011,7 @@ CATALOG_HTML = """
     <div class="pages" id="pagesContainer">
         <div class="page active" id="page-home">
             <div id="homeHeroBox" style="background:linear-gradient(135deg,#1a2a3a,#243447); border-radius:18px; padding:22px 16px; text-align:center; border:1px solid rgba(74,158,255,0.15); box-shadow:0 8px 24px rgba(0,0,0,0.3);">
-                <img src="/static/logo.jpg" style="width:70px; height:70px; border-radius:16px; object-fit:cover; box-shadow:0 4px 16px rgba(0,0,0,0.4);" />
+                <img src="/static/logo.jpg" style="width:70px; height:70px; border-radius:16px; object-fit:cover; box-shadow:0 4px 16px rgba(0,0,0,0.4); animation: logoSpin 6s ease-in-out infinite;" />
                 <div style="color:#fff; font-size:16px; font-weight:700; margin-top:10px;">Shalom Technology</div>
                 <div style="color:#9bb0c0; font-size:11px; margin-top:2px;">✨ የእርስዎ የደህንነት አጋር ✨</div>
                 <button class="btn-primary gold" style="margin-top:16px;" onclick="toggleHomeMenu()">🚀 Marshalom Application</button>
@@ -1458,6 +1265,7 @@ CATALOG_HTML = """
 const tg = window.Telegram.WebApp;
 tg.ready(); tg.expand();
 const initData = tg.initData;
+const tgUser = (tg.initDataUnsafe && tg.initDataUnsafe.user) ? tg.initDataUnsafe.user : {};
 let currentLang = 'am';
 let allProducts = [];
 let teamLeaderCreds = null;
@@ -1634,6 +1442,19 @@ function openFullscreen(photoUrl, name) {
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
     document.body.appendChild(overlay);
 }
+function maybeRotateProducts() {
+    const lastRotate = parseInt(localStorage_fallback('lastProductRotate') || '0');
+    const now = Date.now();
+    if (now - lastRotate > 8 * 60 * 60 * 1000 && allProducts.length > 1) {
+        allProducts.push(allProducts.shift());
+        renderProducts();
+    }
+}
+let _memoryStore = {};
+function localStorage_fallback(key, value) {
+    if (value !== undefined) { _memoryStore[key] = value; return; }
+    return _memoryStore[key];
+}
 async function askPrice(productId, productName) {
     const t = translations[currentLang];
     await fetch('/api/ask_price', {
@@ -1657,7 +1478,6 @@ function renderJobs() {
             <h3 style="color:#fff; font-size:12px;">${j.title}</h3>
             <p style="color:#9bb0c0; font-size:10px;">${j.location || ''}</p>
             <p style="color:#c0d8e8; font-size:10px; margin-top:4px;">${j.description || ''}</p>
-            ${j.pdf_url ? `<a href="${j.pdf_url}" target="_blank" style="color:#4a9eff; font-size:11px;">📄 PDF ውረድ</a>` : ''}
             <input type="text" id="phone-${j.id}" placeholder="${t.phonePlaceholder}" class="input-field" style="margin-top:6px;">
             <input type="email" id="email-${j.id}" placeholder="Gmail / Email" class="input-field">
             <input type="text" id="idnum-${j.id}" placeholder="የመታወቂያ ቁጥር (ID Number)" class="input-field">
@@ -1902,7 +1722,6 @@ function renderEmployeePanel(profile, username, password) {
                 <b>🎁 ቦነስ:</b><br>${(profile.bonus || 'የለም').replace(/\\n/g,'<br>')}<br>
                 <b>⚠️ ማስጠንቀቂያ:</b><br>${(profile.warnings || 'የለም').replace(/\\n/g,'<br>')}<br>
                 <b>📋 ስራዎች:</b><br>${(profile.tasks || 'የለም').replace(/\\n/g,'<br>')}
-                ${profile.photo_url ? `<br><b>📸 ፎቶ:</b><br><img src="${profile.photo_url}" style="width:80px; height:80px; border-radius:50%; object-fit:cover; margin-top:4px;" />` : ''}
             </div>
         </div>
     `;
@@ -1966,7 +1785,6 @@ async function renderTeamLeaderPanel(profile) {
     listEl.innerHTML = (employees || []).map(e => `
         <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; margin-bottom:6px;">
             <b style="color:#fff; font-size:12px;">${e.full_name}</b> <span style="color:#8aa3b5; font-size:10px;">(${e.position})</span>
-            ${e.photo_url ? `<img src="${e.photo_url}" style="width:30px; height:30px; border-radius:50%; object-fit:cover; vertical-align:middle; margin-right:6px;" />` : ''}
             <div style="display:flex; gap:4px; margin-top:6px;">
                 <button style="flex:1; font-size:9px; padding:5px; border:none; border-radius:6px; background:#2b3a4a; color:#fff;" onclick="tlResetPassword('${e.username}')">🔐 Reset</button>
                 <button style="flex:1; font-size:9px; padding:5px; border:none; border-radius:6px; background:#2b3a4a; color:#fff;" onclick="tlAssignTask('${e.username}')">📋 Task</button>
@@ -2198,6 +2016,7 @@ loadPromos();
 loadBanks();
 loadApplications();
 loadTestimonials();
+setInterval(maybeRotateProducts, 60000);
 if (window.location.hash) {
     const targetPage = window.location.hash.replace('#', '');
     if (document.getElementById(targetPage)) showPage(targetPage);
@@ -2211,7 +2030,6 @@ if (window.location.hash) {
 def webapp_catalog():
     return render_template_string(CATALOG_HTML)
 
-# ===== API Routes =====
 @app.route('/api/products')
 def api_products():
     category = request.args.get('category')
@@ -2486,336 +2304,6 @@ def api_team_reset_password():
             'text': f"🔐 password ዎ ዳግም ተጀምሯል። ጊዜያዊ password: {temp_pw}"
         })
     return jsonify({"ok": True, "temp_password": temp_pw})
-
-# ===== አዲስ ኤፒአይ መንገዶች (ከክፍል 1፣ 2 እና 3) =====
-
-# ቅንብሮች
-@app.route('/api/admin/settings', methods=['GET', 'POST'])
-def api_admin_settings():
-    if not require_admin():
-        return jsonify({"error": "forbidden"}), 403
-    if request.method == 'POST':
-        body = request.get_json(silent=True) or {}
-        for key, value in body.items():
-            set_config(f'setting_{key}', value)
-        return jsonify({"ok": True})
-    settings = {
-        'language': get_config('setting_language', 'am'),
-        'primary_color': get_config('setting_primary_color', '#4a9eff'),
-        'bg_color': get_config('setting_bg_color', '#0b1219'),
-        'card_bg': get_config('setting_card_bg', '#17212b'),
-        'font_family': get_config('setting_font_family', 'Segoe UI'),
-        'border_radius': get_config('setting_border_radius', '16'),
-        'logo': get_config('setting_logo', '📱'),
-        'company_name': get_config('setting_company_name', 'Shalom Technology'),
-        'tagline': get_config('setting_tagline', '✨ የእርስዎ የደህንነት አጋር ✨')
-    }
-    return jsonify(settings)
-
-# ገጾች
-@app.route('/api/admin/pages', methods=['GET', 'POST', 'DELETE'])
-def api_admin_pages():
-    if not require_admin():
-        return jsonify({"error": "forbidden"}), 403
-    if request.method == 'GET':
-        return jsonify(get_config('custom_pages', []))
-    if request.method == 'POST':
-        body = request.get_json(silent=True) or {}
-        pages = get_config('custom_pages', [])
-        page = {'id': len(pages) + 1, 'name': body.get('name', 'አዲስ ገጽ'), 'content': body.get('content', ''), 'icon': body.get('icon', '📄'), 'visible': body.get('visible', True)}
-        pages.append(page)
-        set_config('custom_pages', pages)
-        return jsonify({"ok": True, "page": page})
-    if request.method == 'DELETE':
-        page_id = request.args.get('id')
-        if page_id:
-            pages = get_config('custom_pages', [])
-            pages = [p for p in pages if p.get('id') != int(page_id)]
-            set_config('custom_pages', pages)
-            return jsonify({"ok": True})
-        return jsonify({"error": "id required"}), 400
-
-# አዝራሮች
-@app.route('/api/admin/buttons', methods=['GET', 'POST', 'DELETE'])
-def api_admin_buttons():
-    if not require_admin():
-        return jsonify({"error": "forbidden"}), 403
-    if request.method == 'GET':
-        return jsonify(get_config('custom_buttons', []))
-    if request.method == 'POST':
-        body = request.get_json(silent=True) or {}
-        buttons = get_config('custom_buttons', [])
-        button = {'id': len(buttons) + 1, 'label': body.get('label', 'አዝራር'), 'color': body.get('color', '#4a9eff'), 'size': body.get('size', 'medium'), 'action': body.get('action', ''), 'icon': body.get('icon', '🔘')}
-        buttons.append(button)
-        set_config('custom_buttons', buttons)
-        return jsonify({"ok": True, "button": button})
-    if request.method == 'DELETE':
-        button_id = request.args.get('id')
-        if button_id:
-            buttons = get_config('custom_buttons', [])
-            buttons = [b for b in buttons if b.get('id') != int(button_id)]
-            set_config('custom_buttons', buttons)
-            return jsonify({"ok": True})
-        return jsonify({"error": "id required"}), 400
-
-# አዶዎች
-@app.route('/api/admin/icons', methods=['GET', 'POST', 'DELETE'])
-def api_admin_icons():
-    if not require_admin():
-        return jsonify({"error": "forbidden"}), 403
-    if request.method == 'GET':
-        return jsonify(get_config('custom_icons', []))
-    if request.method == 'POST':
-        body = request.get_json(silent=True) or {}
-        icons = get_config('custom_icons', [])
-        icon = {'id': len(icons) + 1, 'emoji': body.get('emoji', '😊'), 'label': body.get('label', 'አዶ'), 'page': body.get('page', '')}
-        icons.append(icon)
-        set_config('custom_icons', icons)
-        return jsonify({"ok": True, "icon": icon})
-    if request.method == 'DELETE':
-        icon_id = request.args.get('id')
-        if icon_id:
-            icons = get_config('custom_icons', [])
-            icons = [i for i in icons if i.get('id') != int(icon_id)]
-            set_config('custom_icons', icons)
-            return jsonify({"ok": True})
-        return jsonify({"error": "id required"}), 400
-
-# PDF መጫን
-@app.route('/api/admin/jobs/<int:job_id>/pdf', methods=['POST'])
-def api_admin_upload_job_pdf(job_id):
-    if not require_admin():
-        return jsonify({"error": "forbidden"}), 403
-    if 'file' not in request.files:
-        return jsonify({"error": "no file"}), 400
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({"error": "empty filename"}), 400
-    if not allowed_file(file.filename):
-        return jsonify({"error": "only PDF allowed"}), 400
-    filename = secure_filename(f"job_{job_id}_{file.filename}")
-    filepath = os.path.join(UPLOAD_FOLDER, filename)
-    file.save(filepath)
-    pdf_url = f"{BASE_URL}/uploads/{filename}"
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("UPDATE jobs SET pdf_url=%s WHERE id=%s", (pdf_url, job_id))
-    conn.commit()
-    cur.close()
-    conn.close()
-    return jsonify({"ok": True, "pdf_url": pdf_url})
-
-@app.route('/uploads/<filename>')
-def serve_pdf(filename):
-    return send_from_directory(UPLOAD_FOLDER, filename)
-
-# የሰራተኛ ፎቶ
-@app.route('/api/admin/employees/<int:emp_id>/photo', methods=['POST'])
-def api_admin_upload_employee_photo(emp_id):
-    if not require_admin():
-        return jsonify({"error": "forbidden"}), 403
-    if 'file' not in request.files:
-        return jsonify({"error": "no file"}), 400
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({"error": "empty filename"}), 400
-    photo_data = base64.b64encode(file.read()).decode('utf-8')
-    photo_url = f"data:image/jpeg;base64,{photo_data}"
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("UPDATE employees SET photo_url=%s WHERE id=%s", (photo_url, emp_id))
-    conn.commit()
-    cur.close()
-    conn.close()
-    return jsonify({"ok": True, "photo_url": photo_url})
-
-# ዲዛይን
-@app.route('/api/admin/design', methods=['GET', 'POST'])
-def api_admin_design():
-    if not require_admin():
-        return jsonify({"error": "forbidden"}), 403
-    if request.method == 'POST':
-        body = request.get_json(silent=True) or {}
-        for key, value in body.items():
-            set_config(f'design_{key}', value)
-        return jsonify({"ok": True})
-    design = {
-        'primary_color': get_config('design_primary_color', '#4a9eff'),
-        'secondary_color': get_config('design_secondary_color', '#2a7adf'),
-        'bg_color': get_config('design_bg_color', '#0b1219'),
-        'card_bg': get_config('design_card_bg', '#17212b'),
-        'text_color': get_config('design_text_color', '#e0edf5'),
-        'header_color': get_config('design_header_color', '#1a2a3a'),
-        'footer_color': get_config('design_footer_color', '#0f1a24'),
-        'font_family': get_config('design_font_family', 'Segoe UI'),
-        'border_radius': get_config('design_border_radius', '16'),
-        'logo': get_config('design_logo', '📱'),
-        'logo_url': get_config('design_logo_url', ''),
-        'company_name': get_config('design_company_name', 'Shalom Technology'),
-        'tagline': get_config('design_tagline', '✨ የእርስዎ የደህንነት አጋር ✨'),
-        'footer_text': get_config('design_footer_text', '© 2026 Shalom Technology. ሁሉም መብቶች የተጠበቁ ናቸው።')
-    }
-    return jsonify(design)
-
-# ሎጎ መጫን
-@app.route('/api/admin/logo', methods=['POST'])
-def api_admin_upload_logo():
-    if not require_admin():
-        return jsonify({"error": "forbidden"}), 403
-    if 'file' not in request.files:
-        return jsonify({"error": "no file"}), 400
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({"error": "empty filename"}), 400
-    photo_data = base64.b64encode(file.read()).decode('utf-8')
-    mime_type = file.content_type or 'image/png'
-    logo_url = f"data:{mime_type};base64,{photo_data}"
-    set_config('design_logo_url', logo_url)
-    return jsonify({"ok": True, "logo_url": logo_url})
-
-# QR ኮድ
-@app.route('/api/admin/qr', methods=['POST'])
-def api_admin_generate_qr():
-    if not require_admin():
-        return jsonify({"error": "forbidden"}), 403
-    body = request.get_json(silent=True) or {}
-    data = body.get('data', '')
-    if not data:
-        return jsonify({"error": "data required"}), 400
-    try:
-        import qrcode
-        import io
-        qr = qrcode.QRCode(version=1, box_size=10, border=5)
-        qr.add_data(data)
-        qr.make(fit=True)
-        img = qr.make_image(fill_color="black", back_color="white")
-        buffered = io.BytesIO()
-        img.save(buffered, format="PNG")
-        img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
-        set_config('qr_code', f"data:image/png;base64,{img_base64}")
-        return jsonify({"ok": True, "qr": f"data:image/png;base64,{img_base64}"})
-    except ImportError:
-        return jsonify({"error": "qrcode not installed"}), 500
-
-# የንግድ አመክንዮ - ህጎች
-@app.route('/api/admin/rules', methods=['GET', 'POST', 'DELETE'])
-def api_admin_rules():
-    if not require_admin():
-        return jsonify({"error": "forbidden"}), 403
-    if request.method == 'GET':
-        return jsonify(get_config('business_rules', []))
-    if request.method == 'POST':
-        body = request.get_json(silent=True) or {}
-        rules = get_config('business_rules', [])
-        rule = {'id': len(rules) + 1, 'name': body.get('name', 'አዲስ ህግ'), 'condition': body.get('condition', ''), 'action': body.get('action', ''), 'active': body.get('active', True), 'created_at': datetime.now().isoformat()}
-        rules.append(rule)
-        set_config('business_rules', rules)
-        return jsonify({"ok": True, "rule": rule})
-    if request.method == 'DELETE':
-        rule_id = request.args.get('id')
-        if rule_id:
-            rules = get_config('business_rules', [])
-            rules = [r for r in rules if r.get('id') != int(rule_id)]
-            set_config('business_rules', rules)
-            return jsonify({"ok": True})
-        return jsonify({"error": "id required"}), 400
-
-# የስራ ሂደቶች
-@app.route('/api/admin/workflows', methods=['GET', 'POST', 'DELETE'])
-def api_admin_workflows():
-    if not require_admin():
-        return jsonify({"error": "forbidden"}), 403
-    if request.method == 'GET':
-        return jsonify(get_config('workflows', []))
-    if request.method == 'POST':
-        body = request.get_json(silent=True) or {}
-        workflows = get_config('workflows', [])
-        workflow = {'id': len(workflows) + 1, 'name': body.get('name', 'አዲስ ሂደት'), 'steps': body.get('steps', []), 'active': body.get('active', True), 'created_at': datetime.now().isoformat()}
-        workflows.append(workflow)
-        set_config('workflows', workflows)
-        return jsonify({"ok": True, "workflow": workflow})
-    if request.method == 'DELETE':
-        workflow_id = request.args.get('id')
-        if workflow_id:
-            workflows = get_config('workflows', [])
-            workflows = [w for w in workflows if w.get('id') != int(workflow_id)]
-            set_config('workflows', workflows)
-            return jsonify({"ok": True})
-        return jsonify({"error": "id required"}), 400
-
-# ሁለንተናዊ መድረክ ድጋፍ
-@app.route('/api/platform/config')
-def api_platform_config():
-    platform = request.args.get('platform', 'web')
-    config = {
-        'app_name': get_config('design_company_name', 'Shalom Technology'),
-        'logo_url': get_config('design_logo_url', ''),
-        'primary_color': get_config('design_primary_color', '#4a9eff'),
-        'api_url': BASE_URL,
-        'telegram_bot': BOT_USERNAME,
-        'channel': CHANNEL_ID,
-        'features': {'products': True, 'jobs': True, 'feedback': True, 'banks': True, 'applications': True, 'promos': True}
-    }
-    return jsonify(config)
-
-# የ777 ልዩ ትዕዛዝ
-@app.route('/api/secret/777', methods=['POST'])
-def api_secret_777():
-    body = request.get_json(silent=True) or {}
-    chat_id = body.get('chat_id')
-    user_id = body.get('user_id')
-    if str(user_id) != str(OWNER_CHAT_ID):
-        return jsonify({"error": "unauthorized"}), 403
-    if chat_id:
-        requests.post(f"{TELEGRAM_URL}/sendMessage", json={
-            'chat_id': chat_id,
-            'text': "🎵 Wow my boss is here! 🎵\n❤️ My boss my boss I love you! ❤️"
-        })
-    return jsonify({"ok": True})
-
-# የአድሚን ሙሉ ማዋቀሪያ
-@app.route('/api/admin/full_config')
-def api_admin_full_config():
-    if not require_admin():
-        return jsonify({"error": "forbidden"}), 403
-    config = {
-        'design': {
-            'primary_color': get_config('design_primary_color', '#4a9eff'),
-            'bg_color': get_config('design_bg_color', '#0b1219'),
-            'card_bg': get_config('design_card_bg', '#17212b'),
-            'logo': get_config('design_logo', '📱'),
-            'logo_url': get_config('design_logo_url', ''),
-            'company_name': get_config('design_company_name', 'Shalom Technology'),
-            'tagline': get_config('design_tagline', '✨ የእርስዎ የደህንነት አጋር ✨')
-        },
-        'settings': {
-            'language': get_config('setting_language', 'am'),
-            'auto_promo_enabled': get_config('auto_promo_enabled', True),
-            'auto_promo_hours': get_config('auto_promo_hours', [9, 12, 15, 17, 19])
-        },
-        'pages': get_config('custom_pages', []),
-        'buttons': get_config('custom_buttons', []),
-        'icons': get_config('custom_icons', []),
-        'rules': get_config('business_rules', []),
-        'workflows': get_config('workflows', []),
-        'dataflows': get_config('dataflows', [])
-    }
-    return jsonify(config)
-
-def execute_business_rules(event_type, data):
-    rules = get_config('business_rules', [])
-    for rule in rules:
-        if not rule.get('active', True):
-            continue
-        try:
-            if rule['condition'] == 'text_contains_777' and '777' in str(data.get('text', '')):
-                if data.get('chat_id'):
-                    requests.post(f"{TELEGRAM_URL}/sendMessage", json={
-                        'chat_id': data['chat_id'],
-                        'text': "🎵 Wow my boss is here! 🎵\n❤️ My boss my boss I love you! ❤️"
-                    })
-        except Exception as e:
-            print(f"Rule execution error: {e}")
 
 ADMIN_HTML = """
 <!DOCTYPE html>
@@ -3105,10 +2593,6 @@ def index():
 🔗: tg://user?id={user_id}"""
         url = f"{TELEGRAM_URL}/sendMessage"
         upsert_customer(user_id, name, username)
-        
-        # Execute business rules
-        execute_business_rules('message', {'chat_id': chat_id, 'text': text, 'user_id': user_id})
-        
         if 'web_app_data' in msg:
             try:
                 wa_data = json.loads(msg['web_app_data'].get('data', '{}'))
@@ -3255,8 +2739,6 @@ def index():
 {emp['warnings'] or 'የለም'}
 📋 ስራዎች:
 {emp['tasks'] or 'የለም'}"""
-                    if emp.get('photo_url'):
-                        profile_text += f"\n📸 ፎቶ: {emp['photo_url']}"
                     requests.post(url, json={'chat_id': chat_id, 'text': profile_text})
                 else:
                     requests.post(url, json={'chat_id': chat_id, 'text': '❌ መገለጫ አልተገኘም።'})
@@ -3415,8 +2897,900 @@ def index():
 
 init_db()
 schedule_daily_promos()
-schedule_auto_update()
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
+    # ===== የቋንቋ ስርዓት (4 ቋንቋዎች) =====
+LANGUAGES = {
+    'am': 'አማርኛ',
+    'en': 'English',
+    'ti': 'ትግርኛ',
+    'or': 'Afaan Oromoo'
+}
+
+DEFAULT_LANG = 'am'
+
+def get_translation(text_key, lang='am'):
+    """በተመረጠው ቋንቋ የተረጎመ ጽሑፍ ይመልሳል"""
+    translations = {
+        'welcome': {
+            'am': 'እንኳን ደህና መጡ!',
+            'en': 'Welcome!',
+            'ti': 'እንኳዕ ደሓን መጻእኩም!',
+            'or': 'Baga nagaan dhufte!'
+        },
+        'invite': {
+            'am': 'የእኛ ሞባይል አፕሊኬሽን እንዲከፍቱ እንጋብዘዎታለን',
+            'en': 'We invite you to open our mobile application',
+            'ti': 'ናይ ሞባይል ኣፕሊኬሽንና ክትከፍቱ ንዕድመኩም',
+            'or': 'App mobile keenya banuuf si afeerra'
+        },
+        'click_to_open': {
+            'am': 'ለመከፈት እዚህ ጠቅ አድርጉ',
+            'en': 'Click here to open',
+            'ti': 'ንምክፋት አብዚ ጠውቕ',
+            'or': 'Banuuf asi tuqi'
+        },
+        'products': {
+            'am': 'ምርቶች',
+            'en': 'Products',
+            'ti': 'ምርቶች',
+            'or': 'Oomishaalee'
+        },
+        'jobs': {
+            'am': 'ክፍት ስራ',
+            'en': 'Jobs',
+            'ti': 'ክፍቲ ስራሕ',
+            'or': 'Hojii Banaa'
+        },
+        'contact': {
+            'am': 'ይደውሉ',
+            'en': 'Call',
+            'ti': 'ደውሉ',
+            'or': 'Bilbilaa'
+        },
+        'social': {
+            'am': 'ማህበራዊ',
+            'en': 'Social',
+            'ti': 'ማህበራዊ',
+            'or': 'Hawaasa'
+        }
+    }
+    return translations.get(text_key, {}).get(lang, translations.get(text_key, {}).get(DEFAULT_LANG, text_key))
+
+# ===== Home/Back አዝራሮች =====
+def get_nav_buttons(lang='am'):
+    return {
+        'home': get_translation('home', lang) if 'home' in get_translation.__globals__ else 'መነሻ',
+        'back': '‹ ተመለስ'
+    }
+
+# ===== Applications ገጽ (10 apps) =====
+def get_default_apps():
+    return [
+        {'name': 'Marshalom POS', 'photo': '📱', 'file': None},
+        {'name': 'Shalom CRM', 'photo': '📱', 'file': None},
+        {'name': 'Tech Store', 'photo': '📱', 'file': None},
+        {'name': 'Security Monitor', 'photo': '📱', 'file': None},
+        {'name': 'Inventory Pro', 'photo': '📱', 'file': None},
+        {'name': 'HR Manager', 'photo': '📱', 'file': None},
+        {'name': 'Finance Tracker', 'photo': '📱', 'file': None},
+        {'name': 'Sales Dashboard', 'photo': '📱', 'file': None},
+        {'name': 'Customer Care', 'photo': '📱', 'file': None},
+        {'name': 'Analytics Pro', 'photo': '📱', 'file': None}
+    ]
+
+# ===== ለአድሚን ዳሽቦርድ የሚሆኑ አዲስ ተግባራት =====
+@app.route('/api/admin/settings', methods=['GET', 'POST'])
+def api_admin_settings():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    
+    if request.method == 'POST':
+        body = request.get_json(silent=True) or {}
+        # ቅንብሮችን አስቀምጥ
+        for key, value in body.items():
+            set_config(f'setting_{key}', value)
+        return jsonify({"ok": True})
+    
+    # GET - ሁሉንም ቅንብሮች አምጣ
+    settings = {
+        'language': get_config('setting_language', 'am'),
+        'primary_color': get_config('setting_primary_color', '#4a9eff'),
+        'bg_color': get_config('setting_bg_color', '#0b1219'),
+        'card_bg': get_config('setting_card_bg', '#17212b'),
+        'font_family': get_config('setting_font_family', 'Segoe UI'),
+        'border_radius': get_config('setting_border_radius', '16'),
+        'logo': get_config('setting_logo', '📱'),
+        'company_name': get_config('setting_company_name', 'Shalom Technology'),
+        'tagline': get_config('setting_tagline', '✨ የእርስዎ የደህንነት አጋር ✨')
+    }
+    return jsonify(settings)
+
+# ===== የገጽ አርትዖት =====
+@app.route('/api/admin/pages', methods=['GET', 'POST', 'DELETE'])
+def api_admin_pages():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    
+    if request.method == 'GET':
+        pages = get_config('custom_pages', [])
+        return jsonify(pages)
+    
+    if request.method == 'POST':
+        body = request.get_json(silent=True) or {}
+        pages = get_config('custom_pages', [])
+        page = {
+            'id': len(pages) + 1,
+            'name': body.get('name', 'አዲስ ገጽ'),
+            'content': body.get('content', ''),
+            'icon': body.get('icon', '📄'),
+            'visible': body.get('visible', True)
+        }
+        pages.append(page)
+        set_config('custom_pages', pages)
+        return jsonify({"ok": True, "page": page})
+    
+    if request.method == 'DELETE':
+        page_id = request.args.get('id')
+        if page_id:
+            pages = get_config('custom_pages', [])
+            pages = [p for p in pages if p.get('id') != int(page_id)]
+            set_config('custom_pages', pages)
+            return jsonify({"ok": True})
+        return jsonify({"error": "id required"}), 400
+
+# ===== የአዝራር አስተዳደር =====
+@app.route('/api/admin/buttons', methods=['GET', 'POST', 'DELETE'])
+def api_admin_buttons():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    
+    if request.method == 'GET':
+        buttons = get_config('custom_buttons', [])
+        return jsonify(buttons)
+    
+    if request.method == 'POST':
+        body = request.get_json(silent=True) or {}
+        buttons = get_config('custom_buttons', [])
+        button = {
+            'id': len(buttons) + 1,
+            'label': body.get('label', 'አዝራር'),
+            'color': body.get('color', '#4a9eff'),
+            'size': body.get('size', 'medium'),
+            'action': body.get('action', ''),
+            'icon': body.get('icon', '🔘')
+        }
+        buttons.append(button)
+        set_config('custom_buttons', buttons)
+        return jsonify({"ok": True, "button": button})
+    
+    if request.method == 'DELETE':
+        button_id = request.args.get('id')
+        if button_id:
+            buttons = get_config('custom_buttons', [])
+            buttons = [b for b in buttons if b.get('id') != int(button_id)]
+            set_config('custom_buttons', buttons)
+            return jsonify({"ok": True})
+        return jsonify({"error": "id required"}), 400
+
+# ===== የአዶ አስተዳደር =====
+@app.route('/api/admin/icons', methods=['GET', 'POST', 'DELETE'])
+def api_admin_icons():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    
+    if request.method == 'GET':
+        icons = get_config('custom_icons', [])
+        return jsonify(icons)
+    
+    if request.method == 'POST':
+        body = request.get_json(silent=True) or {}
+        icons = get_config('custom_icons', [])
+        icon = {
+            'id': len(icons) + 1,
+            'emoji': body.get('emoji', '😊'),
+            'label': body.get('label', 'አዶ'),
+            'page': body.get('page', '')
+        }
+        icons.append(icon)
+        set_config('custom_icons', icons)
+        return jsonify({"ok": True, "icon": icon})
+    
+    if request.method == 'DELETE':
+        icon_id = request.args.get('id')
+        if icon_id:
+            icons = get_config('custom_icons', [])
+            icons = [i for i in icons if i.get('id') != int(icon_id)]
+            set_config('custom_icons', icons)
+            return jsonify({"ok": True})
+        return jsonify({"error": "id required"}), 400
+        # ===== PDF መጫን/ማውረድ =====
+import base64
+import os
+from werkzeug.utils import secure_filename
+
+# ለፋይል መጫኛ ማዋቀር
+UPLOAD_FOLDER = 'uploads'
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+
+ALLOWED_EXTENSIONS = {'pdf'}
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@app.route('/api/admin/jobs/<int:job_id>/pdf', methods=['POST'])
+def api_admin_upload_job_pdf(job_id):
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    
+    if 'file' not in request.files:
+        return jsonify({"error": "no file"}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "empty filename"}), 400
+    
+    if not allowed_file(file.filename):
+        return jsonify({"error": "only PDF allowed"}), 400
+    
+    # ፋይሉን አስቀምጥ
+    filename = secure_filename(f"job_{job_id}_{file.filename}")
+    filepath = os.path.join(UPLOAD_FOLDER, filename)
+    file.save(filepath)
+    
+    # ዩአርኤል አስቀምጥ
+    pdf_url = f"{BASE_URL}/uploads/{filename}"
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("UPDATE jobs SET pdf_url=%s WHERE id=%s", (pdf_url, job_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+    
+    return jsonify({"ok": True, "pdf_url": pdf_url})
+
+@app.route('/uploads/<filename>')
+def serve_pdf(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename)
+
+# ===== የሰራተኛ ፎቶ እና ኢሜይል =====
+@app.route('/api/admin/employees/<int:emp_id>/photo', methods=['POST'])
+def api_admin_upload_employee_photo(emp_id):
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    
+    if 'file' not in request.files:
+        return jsonify({"error": "no file"}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "empty filename"}), 400
+    
+    # ፎቶውን እንደ base64 አስቀምጥ
+    photo_data = base64.b64encode(file.read()).decode('utf-8')
+    photo_url = f"data:image/jpeg;base64,{photo_data}"
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("UPDATE employees SET photo_url=%s WHERE id=%s", (photo_url, emp_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+    
+    return jsonify({"ok": True, "photo_url": photo_url})
+
+# የሰራተኛ ኢሜይል ለማዘመን
+@app.route('/api/admin/employees/<int:emp_id>/email', methods=['POST'])
+def api_admin_update_employee_email(emp_id):
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    
+    body = request.get_json(silent=True) or {}
+    email = body.get('email', '').strip()
+    
+    if not email:
+        return jsonify({"error": "email required"}), 400
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("UPDATE employees SET internal_email=%s WHERE id=%s", (email, emp_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+    
+    return jsonify({"ok": True})
+
+# ሁሉንም ሰራተኞች ከፎቶ እና ኢሜይል ጋር ለማየት
+@app.route('/api/admin/employees_full')
+def api_admin_employees_full():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT id, username, full_name, position, salary, bonus, warnings, tasks, role, internal_email, photo_url FROM employees ORDER BY id")
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    
+    result = []
+    for r in rows:
+        result.append({
+            "id": r[0], "username": r[1], "full_name": r[2],
+            "position": r[3], "salary": r[4], "bonus": r[5],
+            "warnings": r[6], "tasks": r[7], "role": r[8],
+            "internal_email": r[9] or f"{r[1]}@marshalom",
+            "photo_url": r[10]
+        })
+    return jsonify(result)
+
+# ===== አስተያየት እና የግል መልእክት =====
+# ለሁሉም የሚታይ አስተያየት (Testimonials) - አስቀድሞ አለ
+# እነዚህን ኤፒአይ መንገዶች እንጨምራለን
+
+@app.route('/api/admin/testimonials', methods=['GET', 'DELETE'])
+def api_admin_testimonials():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    
+    if request.method == 'GET':
+        return jsonify(get_testimonials(100))
+    
+    if request.method == 'DELETE':
+        testimonial_id = request.args.get('id')
+        if testimonial_id:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("DELETE FROM testimonials WHERE id=%s", (testimonial_id,))
+            conn.commit()
+            cur.close()
+            conn.close()
+            return jsonify({"ok": True})
+        return jsonify({"error": "id required"}), 400
+
+# የውስጥ መልእክት ሳጥን (Inbox) - የተሻሻለ
+@app.route('/api/admin/inbox', methods=['GET', 'POST'])
+def api_admin_inbox():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    
+    if request.method == 'GET':
+        # ሁሉንም መልእክቶች አምጣ
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, sender_name, sender_username, sender_user_id, 
+                   recipient_type, recipient_username, message, created_at 
+            FROM internal_messages ORDER BY id DESC LIMIT 200
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        
+        result = []
+        for r in rows:
+            result.append({
+                "id": r[0], "sender_name": r[1], "sender_username": r[2],
+                "sender_user_id": r[3], "recipient_type": r[4],
+                "recipient_username": r[5], "message": r[6],
+                "created_at": str(r[7])
+            })
+        return jsonify(result)
+    
+    if request.method == 'POST':
+        body = request.get_json(silent=True) or {}
+        # አድሚን መልእክት ይልካል
+        recipient_type = body.get('recipient_type', 'employee')
+        recipient_username = body.get('recipient_username')
+        message = body.get('message', '').strip()
+        sender_name = body.get('sender_name', 'አድሚን')
+        sender_username = body.get('sender_username', 'admin')
+        sender_user_id = body.get('sender_user_id', OWNER_CHAT_ID)
+        
+        if not message:
+            return jsonify({"error": "message required"}), 400
+        
+        send_internal_message(sender_name, sender_username, sender_user_id, 
+                             recipient_type, recipient_username, message)
+        
+        # ለተቀባዩ አሳውቅ
+        if recipient_type == 'employee' and recipient_username:
+            emp = get_employee_by_username(recipient_username)
+            if emp and emp.get('telegram_chat_id'):
+                requests.post(f"{TELEGRAM_URL}/sendMessage", json={
+                    'chat_id': emp['telegram_chat_id'],
+                    'text': f"📩 አዲስ መልእክት ከአድሚን!\n\n{message}"
+                })
+        
+        return jsonify({"ok": True})
+
+# ለቲም ሊደር የራሱ መልእክት ሳጥን
+@app.route('/api/teamleader/inbox', methods=['GET'])
+def api_teamleader_inbox():
+    init_data = request.headers.get('X-Init-Data', '')
+    user = verify_telegram_webapp_data(init_data)
+    if not user:
+        return jsonify({"error": "unauthorized"}), 401
+    
+    # ቲም ሊደር መሆኑን አረጋግጥ
+    session = get_session(user.get('id'))
+    if not session or session['role'] != 'team_leader':
+        return jsonify({"error": "forbidden"}), 403
+    
+    emp = get_employee_by_id(session['employee_id'])
+    if not emp:
+        return jsonify({"error": "not found"}), 404
+    
+    # ለዚህ ቲም ሊደር የተላኩ መልእክቶችን አምጣ
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id, sender_name, sender_username, message, created_at 
+        FROM internal_messages 
+        WHERE recipient_username=%s OR recipient_type='admin'
+        ORDER BY id DESC LIMIT 100
+    """, (emp['username'],))
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    
+    result = []
+    for r in rows:
+        result.append({
+            "id": r[0], "sender_name": r[1], "sender_username": r[2],
+            "message": r[3], "created_at": str(r[4])
+        })
+    return jsonify(result)
+
+# ለሰራተኛ የራሱ መልእክት ሳጥን
+@app.route('/api/employee/inbox', methods=['GET'])
+def api_employee_inbox():
+    init_data = request.headers.get('X-Init-Data', '')
+    user = verify_telegram_webapp_data(init_data)
+    if not user:
+        return jsonify({"error": "unauthorized"}), 401
+    
+    session = get_session(user.get('id'))
+    if not session or session['role'] != 'employee':
+        return jsonify({"error": "forbidden"}), 403
+    
+    emp = get_employee_by_id(session['employee_id'])
+    if not emp:
+        return jsonify({"error": "not found"}), 404
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id, sender_name, sender_username, message, created_at 
+        FROM internal_messages 
+        WHERE recipient_username=%s OR recipient_type='admin'
+        ORDER BY id DESC LIMIT 50
+    """, (emp['username'],))
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    
+    result = []
+    for r in rows:
+        result.append({
+            "id": r[0], "sender_name": r[1], "sender_username": r[2],
+            "message": r[3], "created_at": str(r[4])
+        })
+    return jsonify(result)
+
+# ሰራተኛ መልእክት ይልካል (ወደ ቲም ሊደር ወይም አድሚን)
+@app.route('/api/employee/send_message', methods=['POST'])
+def api_employee_send_message():
+    init_data = request.headers.get('X-Init-Data', '')
+    user = verify_telegram_webapp_data(init_data)
+    if not user:
+        return jsonify({"error": "unauthorized"}), 401
+    
+    body = request.get_json(silent=True) or {}
+    recipient_type = body.get('recipient_type', 'team_leader')
+    recipient_username = body.get('recipient_username')
+    message = body.get('message', '').strip()
+    
+    if not message:
+        return jsonify({"error": "message required"}), 400
+    
+    sender_name = user.get('first_name', '') + ' ' + user.get('last_name', '')
+    sender_username = user.get('username', '')
+    sender_user_id = user.get('id')
+    
+    send_internal_message(sender_name, sender_username, sender_user_id, 
+                         recipient_type, recipient_username, message)
+    
+    # ለአድሚን አሳውቅ
+    if recipient_type == 'admin' or recipient_type == 'team_leader':
+        target_chat = OWNER_CHAT_ID
+        if recipient_type == 'team_leader' and recipient_username:
+            emp = get_employee_by_username(recipient_username)
+            if emp and emp.get('telegram_chat_id'):
+                target_chat = emp['telegram_chat_id']
+        requests.post(f"{TELEGRAM_URL}/sendMessage", json={
+            'chat_id': target_chat,
+            'text': f"📩 አዲስ መልእክት ከሰራተኛ!\nከ: {sender_name} (@{sender_username})\n\n{message}"
+        })
+    
+    return jsonify({"ok": True})
+    # ===== ሙሉ የአድሚን ዳሽቦርድ (ሎጎ፣ ቀለሞች፣ ጽሑፎች) =====
+@app.route('/api/admin/design', methods=['GET', 'POST'])
+def api_admin_design():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    
+    if request.method == 'POST':
+        body = request.get_json(silent=True) or {}
+        # ዲዛይን ቅንብሮችን አስቀምጥ
+        for key, value in body.items():
+            set_config(f'design_{key}', value)
+        return jsonify({"ok": True})
+    
+    # GET - ሁሉንም ዲዛይን ቅንብሮች አምጣ
+    design = {
+        'primary_color': get_config('design_primary_color', '#4a9eff'),
+        'secondary_color': get_config('design_secondary_color', '#2a7adf'),
+        'bg_color': get_config('design_bg_color', '#0b1219'),
+        'card_bg': get_config('design_card_bg', '#17212b'),
+        'text_color': get_config('design_text_color', '#e0edf5'),
+        'header_color': get_config('design_header_color', '#1a2a3a'),
+        'footer_color': get_config('design_footer_color', '#0f1a24'),
+        'font_family': get_config('design_font_family', 'Segoe UI'),
+        'border_radius': get_config('design_border_radius', '16'),
+        'logo': get_config('design_logo', '📱'),
+        'logo_url': get_config('design_logo_url', ''),
+        'company_name': get_config('design_company_name', 'Shalom Technology'),
+        'tagline': get_config('design_tagline', '✨ የእርስዎ የደህንነት አጋር ✨'),
+        'footer_text': get_config('design_footer_text', '© 2026 Shalom Technology. ሁሉም መብቶች የተጠበቁ ናቸው።')
+    }
+    return jsonify(design)
+
+# የሎጎ ምስል መጫን
+@app.route('/api/admin/logo', methods=['POST'])
+def api_admin_upload_logo():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    
+    if 'file' not in request.files:
+        return jsonify({"error": "no file"}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "empty filename"}), 400
+    
+    # ፎቶውን እንደ base64 አስቀምጥ
+    photo_data = base64.b64encode(file.read()).decode('utf-8')
+    mime_type = file.content_type or 'image/png'
+    logo_url = f"data:{mime_type};base64,{photo_data}"
+    
+    set_config('design_logo_url', logo_url)
+    return jsonify({"ok": True, "logo_url": logo_url})
+
+# የገጽ ቅደም ተከተል ለማስተዳደር
+@app.route('/api/admin/page_order', methods=['POST'])
+def api_admin_page_order():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    
+    body = request.get_json(silent=True) or {}
+    pages = body.get('pages', [])
+    set_config('page_order', pages)
+    return jsonify({"ok": True})
+
+# ===== ራስ-ሰር ስርዓቶች =====
+# QR ኮድ ማመንጨት
+@app.route('/api/admin/qr', methods=['POST'])
+def api_admin_generate_qr():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    
+    body = request.get_json(silent=True) or {}
+    data = body.get('data', '')
+    if not data:
+        return jsonify({"error": "data required"}), 400
+    
+    try:
+        import qrcode
+        import io
+        qr = qrcode.QRCode(version=1, box_size=10, border=5)
+        qr.add_data(data)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        
+        buffered = io.BytesIO()
+        img.save(buffered, format="PNG")
+        img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+        
+        set_config('qr_code', f"data:image/png;base64,{img_base64}")
+        return jsonify({"ok": True, "qr": f"data:image/png;base64,{img_base64}"})
+    except ImportError:
+        return jsonify({"error": "qrcode not installed"}), 500
+
+# ምርት ፎቶ በየ8 ሰዓቱ ከ@MarshalomAI መቀየር
+def auto_update_product_photos():
+    """በየ8 ሰዓቱ የምርት ፎቶዎችን ከ@MarshalomAI ቻናል ያመጣል"""
+    try:
+        # ከቻናሉ የቅርብ ጊዜ ምርቶችን አምጣ
+        url = f"{TELEGRAM_URL}/getChat"
+        response = requests.get(url, params={'chat_id': AI_CHANNEL_ID})
+        if response.status_code != 200:
+            return
+        
+        # የቅርብ ጊዜ መልእክቶችን አምጣ
+        url = f"{TELEGRAM_URL}/getUpdates"
+        params = {'chat_id': AI_CHANNEL_ID, 'limit': 10}
+        response = requests.get(url, params=params)
+        if response.status_code != 200:
+            return
+        
+        data = response.json()
+        if not data.get('ok'):
+            return
+        
+        # ምርቶችን አዘምን
+        for update in data.get('result', []):
+            if 'channel_post' in update:
+                post = update['channel_post']
+                caption = post.get('caption') or post.get('text') or ''
+                if '#ምርት' in caption or '#product' in caption.lower():
+                    # ምርት አዘምን
+                    photos = post.get('photo')
+                    if photos:
+                        handle_ai_channel_post(post)
+    except Exception as e:
+        print(f"Auto update error: {e}")
+
+# ራስ-ሰር ማስታወቂያ ወደ ቻናል - አስቀድሞ አለ
+# እዚህ ላይ ተጨማሪ ማሻሻያ
+
+@app.route('/api/admin/auto_promo', methods=['POST'])
+def api_admin_auto_promo():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    
+    body = request.get_json(silent=True) or {}
+    enabled = body.get('enabled', True)
+    hours = body.get('hours', [9, 12, 15, 17, 19])
+    
+    set_config('auto_promo_enabled', enabled)
+    set_config('auto_promo_hours', hours)
+    
+    # ሰርጦሩን እንደገና ጀምር (ለለውጥ ማሳወቂያ)
+    return jsonify({"ok": True})
+
+# ===== የንግድ አመክንዮ አስተዳደር =====
+# የስርዓት ህጎች (Rules) አስተዳደር
+@app.route('/api/admin/rules', methods=['GET', 'POST', 'DELETE'])
+def api_admin_rules():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    
+    if request.method == 'GET':
+        rules = get_config('business_rules', [])
+        return jsonify(rules)
+    
+    if request.method == 'POST':
+        body = request.get_json(silent=True) or {}
+        rules = get_config('business_rules', [])
+        rule = {
+            'id': len(rules) + 1,
+            'name': body.get('name', 'አዲስ ህግ'),
+            'condition': body.get('condition', ''),
+            'action': body.get('action', ''),
+            'active': body.get('active', True),
+            'created_at': datetime.now().isoformat()
+        }
+        rules.append(rule)
+        set_config('business_rules', rules)
+        return jsonify({"ok": True, "rule": rule})
+    
+    if request.method == 'DELETE':
+        rule_id = request.args.get('id')
+        if rule_id:
+            rules = get_config('business_rules', [])
+            rules = [r for r in rules if r.get('id') != int(rule_id)]
+            set_config('business_rules', rules)
+            return jsonify({"ok": True})
+        return jsonify({"error": "id required"}), 400
+
+# የስራ ሂደቶች (Workflows) አስተዳደር
+@app.route('/api/admin/workflows', methods=['GET', 'POST', 'DELETE'])
+def api_admin_workflows():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    
+    if request.method == 'GET':
+        workflows = get_config('workflows', [])
+        return jsonify(workflows)
+    
+    if request.method == 'POST':
+        body = request.get_json(silent=True) or {}
+        workflows = get_config('workflows', [])
+        workflow = {
+            'id': len(workflows) + 1,
+            'name': body.get('name', 'አዲስ ሂደት'),
+            'steps': body.get('steps', []),
+            'active': body.get('active', True),
+            'created_at': datetime.now().isoformat()
+        }
+        workflows.append(workflow)
+        set_config('workflows', workflows)
+        return jsonify({"ok": True, "workflow": workflow})
+    
+    if request.method == 'DELETE':
+        workflow_id = request.args.get('id')
+        if workflow_id:
+            workflows = get_config('workflows', [])
+            workflows = [w for w in workflows if w.get('id') != int(workflow_id)]
+            set_config('workflows', workflows)
+            return jsonify({"ok": True})
+        return jsonify({"error": "id required"}), 400
+
+# የውሂብ ፍሰት (Data Flow) አስተዳደር
+@app.route('/api/admin/dataflows', methods=['GET', 'POST', 'DELETE'])
+def api_admin_dataflows():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    
+    if request.method == 'GET':
+        dataflows = get_config('dataflows', [])
+        return jsonify(dataflows)
+    
+    if request.method == 'POST':
+        body = request.get_json(silent=True) or {}
+        dataflows = get_config('dataflows', [])
+        dataflow = {
+            'id': len(dataflows) + 1,
+            'name': body.get('name', 'አዲስ ፍሰት'),
+            'source': body.get('source', ''),
+            'target': body.get('target', ''),
+            'mapping': body.get('mapping', {}),
+            'active': body.get('active', True),
+            'created_at': datetime.now().isoformat()
+        }
+        dataflows.append(dataflow)
+        set_config('dataflows', dataflows)
+        return jsonify({"ok": True, "dataflow": dataflow})
+    
+    if request.method == 'DELETE':
+        dataflow_id = request.args.get('id')
+        if dataflow_id:
+            dataflows = get_config('dataflows', [])
+            dataflows = [d for d in dataflows if d.get('id') != int(dataflow_id)]
+            set_config('dataflows', dataflows)
+            return jsonify({"ok": True})
+        return jsonify({"error": "id required"}), 400
+
+# የስርዓት ህጎችን ተግባራዊ ማድረግ
+def execute_business_rules(event_type, data):
+    """በተከሰተ ክስተት ላይ የንግድ ህጎችን ያስፈጽማል"""
+    rules = get_config('business_rules', [])
+    for rule in rules:
+        if not rule.get('active', True):
+            continue
+        # ህጎቹን ተግባራዊ አድርግ
+        try:
+            # ለምሳሌ: "777" ሲጻፍ ሙዚቃ አጫውት
+            if rule['condition'] == 'text_contains_777' and '777' in str(data.get('text', '')):
+                # ልዩ ምላሽ ስጥ
+                if data.get('chat_id'):
+                    requests.post(f"{TELEGRAM_URL}/sendMessage", json={
+                        'chat_id': data['chat_id'],
+                        'text': "🎵 Wow my boss is here! 🎵\n❤️ My boss my boss I love you! ❤️"
+                    })
+            # ተጨማሪ ህጎችን እዚህ መጨመር ይቻላል
+        except Exception as e:
+            print(f"Rule execution error: {e}")
+
+# የ777 ልዩ ትዕዛዝ አስተናጋጅ
+@app.route('/api/secret/777', methods=['POST'])
+def api_secret_777():
+    """ልዩ ትዕዛዝ - ለመዝናኛ ብቻ"""
+    body = request.get_json(silent=True) or {}
+    chat_id = body.get('chat_id')
+    user_id = body.get('user_id')
+    
+    # ባለቤቱ መሆኑን አረጋግጥ
+    if str(user_id) != str(OWNER_CHAT_ID):
+        return jsonify({"error": "unauthorized"}), 403
+    
+    if chat_id:
+        requests.post(f"{TELEGRAM_URL}/sendMessage", json={
+            'chat_id': chat_id,
+            'text': "🎵 Wow my boss is here! 🎵\n❤️ My boss my boss I love you! ❤️"
+        })
+    
+    return jsonify({"ok": True})
+
+# ===== ሁለንተናዊ መድረክ ድጋፍ =====
+# ይህ አፕሊኬሽኑ ለቴሌግራም ሚኒ አፕ፣ ለድር ጣቢያ እና ለሞባይል አፕ እንዲሰራ ያደርጋል
+
+@app.route('/api/platform/config')
+def api_platform_config():
+    """የመድረክ ማዋቀሪያ - ለሞባይል አፕ እና ለድር ጣቢያ"""
+    platform = request.args.get('platform', 'web')
+    
+    config = {
+        'app_name': get_config('design_company_name', 'Shalom Technology'),
+        'logo_url': get_config('design_logo_url', ''),
+        'primary_color': get_config('design_primary_color', '#4a9eff'),
+        'api_url': BASE_URL,
+        'telegram_bot': BOT_USERNAME,
+        'channel': CHANNEL_ID,
+        'features': {
+            'products': True,
+            'jobs': True,
+            'feedback': True,
+            'banks': True,
+            'applications': True,
+            'promos': True
+        }
+    }
+    return jsonify(config)
+
+# ===== ሁሉም ለውጦች በ<777> ኮድ =====
+# ይህ ማለት ለሁሉም ገጾች የሚሰሩ ለውጦች ናቸው
+# እነዚህ ተግባራት በሁሉም ገጾች ላይ ይተገበራሉ
+
+def apply_global_changes():
+    """<777> ኮድ - ለሁሉም ገጾች የሚሰሩ ለውጦች"""
+    # ቋንቋ
+    lang = get_config('setting_language', 'am')
+    
+    # ቀለሞች
+    primary_color = get_config('design_primary_color', '#4a9eff')
+    bg_color = get_config('design_bg_color', '#0b1219')
+    
+    # ሎጎ
+    logo = get_config('design_logo', '📱')
+    logo_url = get_config('design_logo_url', '')
+    
+    # የገጽ ቅደም ተከተል
+    page_order = get_config('page_order', [])
+    
+    # እነዚህን ለውጦች በሁሉም ገጾች ላይ ተግባራዊ አድርግ
+    return {
+        'language': lang,
+        'primary_color': primary_color,
+        'bg_color': bg_color,
+        'logo': logo,
+        'logo_url': logo_url,
+        'page_order': page_order
+    }
+
+# ለአድሚን ዳሽቦርድ የሚሆን ሙሉ ማዋቀሪያ
+@app.route('/api/admin/full_config')
+def api_admin_full_config():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    
+    config = {
+        'design': {
+            'primary_color': get_config('design_primary_color', '#4a9eff'),
+            'bg_color': get_config('design_bg_color', '#0b1219'),
+            'card_bg': get_config('design_card_bg', '#17212b'),
+            'logo': get_config('design_logo', '📱'),
+            'logo_url': get_config('design_logo_url', ''),
+            'company_name': get_config('design_company_name', 'Shalom Technology'),
+            'tagline': get_config('design_tagline', '✨ የእርስዎ የደህንነት አጋር ✨')
+        },
+        'settings': {
+            'language': get_config('setting_language', 'am'),
+            'auto_promo_enabled': get_config('auto_promo_enabled', True),
+            'auto_promo_hours': get_config('auto_promo_hours', [9, 12, 15, 17, 19])
+        },
+        'pages': get_config('custom_pages', []),
+        'buttons': get_config('custom_buttons', []),
+        'icons': get_config('custom_icons', []),
+        'rules': get_config('business_rules', []),
+        'workflows': get_config('workflows', []),
+        'dataflows': get_config('dataflows', [])
+    }
+    return jsonify(config)
+
+print("✅ ክፍል 3 ተጨምሯል!")
+print("✅ ሁሉም 13 ባህሪያት ተጠናቀዋል!")
