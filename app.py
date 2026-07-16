@@ -17,23 +17,21 @@ app = Flask(__name__)
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 OWNER_CHAT_ID = os.environ.get("OWNER_CHAT_ID")
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
-CHANNEL_ID = os.environ.get("CHANNEL_ID", "@MarshalomTech")   # የቻናል username ወይም ID
-BOT_USERNAME = os.environ.get("BOT_USERNAME", "marshalom_bot")  # ያለ @
+CHANNEL_ID = os.environ.get("CHANNEL_ID", "@MarshalomTech")
+BOT_USERNAME = os.environ.get("BOT_USERNAME", "marshalom_bot")
 AI_CHANNEL_ID = os.environ.get("AI_CHANNEL_ID", "@MarshalomAI")
 PRICE_CHANNEL_ID = os.environ.get("PRICE_CHANNEL_ID", "@Pricefrombot")
 HR_CHANNEL_ID = os.environ.get("HR_CHANNEL_ID", "@Marshalomet")
-DATABASE_URL = os.environ.get("DATABASE_URL")  # Render ራሱ ይሞላዋል ዳታቤዝ ሲያገናኙ
-BASE_URL = os.environ.get("BASE_URL", "https://lwam-bot.onrender.com")  # የቦትዎ Render URL
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")        # ሙሉ አድሚን መዳረሻ ላለው password (አድሚን 1)
-ADMIN_PASSWORD_2 = os.environ.get("ADMIN_PASSWORD_2")      # ሁለተኛ አድሚን password (አድሚን 2)
-TECHNICAL_PASSWORD = os.environ.get("TECHNICAL_PASSWORD")  # የተወሰነ ቴክኒክ መዳረሻ ላለው password
+DATABASE_URL = os.environ.get("DATABASE_URL")
+BASE_URL = os.environ.get("BASE_URL", "https://lwam-bot.onrender.com")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+ADMIN_PASSWORD_2 = os.environ.get("ADMIN_PASSWORD_2")
+TECHNICAL_PASSWORD = os.environ.get("TECHNICAL_PASSWORD")
 # ====================================
 
 TELEGRAM_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 
 def send_with_webapp_button(chat_id, text, button_text, webapp_path):
-    """Sends a message with a web_app inline button. Logs the real Telegram error
-    if it fails, and falls back to a plain url button so the user still gets something."""
     webapp_url = f"{BASE_URL.rstrip('/')}{webapp_path}"
     result = requests.post(f"{TELEGRAM_URL}/sendMessage", json={
         'chat_id': chat_id,
@@ -42,14 +40,14 @@ def send_with_webapp_button(chat_id, text, button_text, webapp_path):
     })
     resp_json = result.json() if result.ok or result.content else {}
     if not resp_json.get('ok'):
-        print(f"⚠️ web_app button send failed: {resp_json.get('description')} (BASE_URL={BASE_URL}, url={webapp_url})")
-        # Fallback: plain URL button (opens in external browser instead of embedded Mini App)
+        print(f"⚠️ web_app button send failed: {resp_json.get('description')}")
         requests.post(f"{TELEGRAM_URL}/sendMessage", json={
             'chat_id': chat_id,
             'text': text,
             'reply_markup': {'inline_keyboard': [[{'text': button_text, 'url': webapp_url}]]}
         })
     return resp_json
+
 ETHIOPIA_TZ = pytz.timezone("Africa/Addis_Ababa")
 
 # ===== ዳታቤዝ (Postgres) =====
@@ -193,10 +191,10 @@ def init_db():
                 role TEXT DEFAULT 'employee',
                 must_change_password BOOLEAN DEFAULT TRUE,
                 telegram_chat_id BIGINT,
+                internal_email TEXT,
                 created_at TIMESTAMP DEFAULT NOW()
             )
         """)
-        # Safe upgrades for already-existing tables from earlier deploys
         cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'employee'")
         cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT TRUE")
         cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS telegram_chat_id BIGINT")
@@ -243,7 +241,6 @@ def load_promos():
         return []
 
 def add_promo(raw_text):
-    """Stores a promo, auto-enhanced and translated into 4 languages via DeepSeek."""
     if not DATABASE_URL:
         return 0
     try:
@@ -306,7 +303,6 @@ def get_products(category=None):
         return []
 
 def add_product(name, category, description, photos):
-    """photos: a list of 1-3 photo URLs/base64 strings"""
     if isinstance(photos, str):
         photos = [photos] if photos else []
     photo_url = photos[0] if photos else None
@@ -436,7 +432,7 @@ def set_application_status(app_id, status):
     conn.close()
     return {"user_id": row[0], "name": row[1], "job_title": row[2]} if row else None
 
-# ===== ተለዋዋጭ የድር ጣቢያ ማዋቀሪያ (site_config) - ስልክ/ማህበራዊ/ባንክ/ዜና/ምክር/ቅናሽ ወዘተ =====
+# ===== ተለዋዋጭ የድር ጣቢያ ማዋቀሪያ (site_config) =====
 def get_config(key, default=None):
     if not DATABASE_URL:
         return default
@@ -505,7 +501,7 @@ def get_customers_list():
         print(f"DB get_customers_list error: {e}")
         return []
 
-# ===== Session (login) management - password-based access from any device =====
+# ===== Session (login) management =====
 def set_session(chat_id, role, employee_id=None):
     conn = get_db_connection()
     cur = conn.cursor()
@@ -543,7 +539,6 @@ def clear_session(chat_id):
     conn.close()
 
 def is_admin_chat(chat_id):
-    """True if this chat is the original owner OR has an active admin-password session."""
     if str(chat_id) == str(OWNER_CHAT_ID):
         return True
     session = get_session(chat_id)
@@ -554,7 +549,6 @@ def is_technical_chat(chat_id):
     return session is not None and session["role"] in ("admin", "technical")
 
 def is_team_leader_or_admin(chat_id):
-    """True if this chat is a full admin OR a logged-in employee with role='team_leader'."""
     if is_admin_chat(chat_id):
         return True
     session = get_session(chat_id)
@@ -571,12 +565,10 @@ def generate_temp_password():
 # ===== የሰራተኛ አስተዳደር (Employees) =====
 def add_employee(username, password, full_name, position, salary):
     first_name_part = full_name.strip().split(' ')[0].lower() if full_name else username
-    # Keep only safe characters for the email-like handle
     safe_part = ''.join(c for c in first_name_part if c.isalnum()) or username
     internal_email = f"{safe_part}@marshalom"
     conn = get_db_connection()
     cur = conn.cursor()
-    # Ensure uniqueness by appending a number if needed
     cur.execute("SELECT COUNT(*) FROM employees WHERE internal_email=%s", (internal_email,))
     if cur.fetchone()[0] > 0:
         cur.execute("SELECT COUNT(*) FROM employees WHERE internal_email LIKE %s", (f"{safe_part}%@marshalom",))
@@ -640,7 +632,6 @@ def list_employees():
     return [{"id": r[0], "username": r[1], "full_name": r[2], "position": r[3], "role": r[4]} for r in rows]
 
 def update_employee_field(username, field, value, append=False):
-    """field is one of: bonus, warnings, tasks, salary"""
     conn = get_db_connection()
     cur = conn.cursor()
     if append:
@@ -711,7 +702,7 @@ def get_testimonials(limit=30):
     conn.close()
     return [{"name": r[0], "username": r[1], "message": r[2], "created_at": str(r[3])} for r in rows]
 
-# ===== የውስጥ መልእክት ሳጥን (Internal Inbox: customer -> team leader / admin) =====
+# ===== የውስጥ መልእክት ሳጥን (Internal Inbox) =====
 def send_internal_message(sender_name, sender_username, sender_user_id, recipient_type, recipient_username, message):
     conn = get_db_connection()
     cur = conn.cursor()
@@ -724,8 +715,6 @@ def send_internal_message(sender_name, sender_username, sender_user_id, recipien
     conn.close()
 
 def get_inbox(recipient_type=None, recipient_username=None, limit=50):
-    """If recipient_type='admin', return everything. If team_leader, return only messages
-    addressed to that specific team leader's username."""
     conn = get_db_connection()
     cur = conn.cursor()
     if recipient_type == 'admin':
@@ -771,7 +760,6 @@ def delete_portfolio_app(app_id):
 
 # ===== Telegram WebApp initData ማረጋገጫ (Security) =====
 def verify_telegram_webapp_data(init_data):
-    """የቴሌግራም Mini App የላከውን initData ትክክለኛነት ያረጋግጣል"""
     try:
         parsed = dict(parse_qsl(init_data))
         received_hash = parsed.pop('hash', None)
@@ -893,10 +881,6 @@ def ask_deepseek(text):
         return None
 
 def enhance_and_translate_promo(raw_text):
-    """Takes admin's raw promo text (Amharic or English, any spelling), asks DeepSeek to
-    correct spelling/grammar, make it attractive marketing copy, and translate into
-    Amharic, English, Tigrinya, and Afan Oromo. Returns dict with all 4, falling back
-    to the raw text in all fields if DeepSeek is unavailable."""
     fallback = {"am": raw_text, "en": raw_text, "ti": raw_text, "or": raw_text}
     if not DEEPSEEK_API_KEY:
         return fallback
@@ -963,9 +947,7 @@ def post_random_promo():
         print(f"Failed to post promo: {e}")
 
 def schedule_daily_promos():
-    """በየቀኑ 5 የተለያዩ የኢትዮጵያ ቀን ሰዓቶች ላይ ራስ-ሰር ማስታወቂያ ይለጥፋል"""
     scheduler = BackgroundScheduler(timezone=ETHIOPIA_TZ)
-    # 5 fixed times per day, spread across Ethiopian daytime hours (not late night)
     post_hours = [9, 12, 15, 17, 19]
     for hour in post_hours:
         scheduler.add_job(post_random_promo, 'cron', hour=hour, minute=random.randint(0, 30))
@@ -1170,7 +1152,7 @@ CATALOG_HTML = """
         <div class="page" id="page-social">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>🌐 <span id="socialTitle">ማህበራዊ</span></div>
             <div class="grid3" style="margin-top:6px;">
-                <a href="https://tiktok.com/@shalomtech" target="_blank" class="card-box" style="text-decoration:none; color:inherit;"><span style="font-size:24px; display:block;">🎵</span><span style="font-size:8px; color:#c0d8e8;">TikTok</span></a>
+                <a href="https://tiktok.com/@marshalomcctv" target="_blank" class="card-box" style="text-decoration:none; color:inherit;"><span style="font-size:24px; display:block;">🎵</span><span style="font-size:8px; color:#c0d8e8;">TikTok</span></a>
                 <a href="https://youtube.com/@ShalomTechnology" target="_blank" class="card-box" style="text-decoration:none; color:inherit;"><span style="font-size:24px; display:block;">▶️</span><span style="font-size:8px; color:#c0d8e8;">YouTube</span></a>
                 <a href="https://facebook.com/share/1YEeCpFBgp" target="_blank" class="card-box" style="text-decoration:none; color:inherit;"><span style="font-size:24px; display:block;">📘</span><span style="font-size:8px; color:#c0d8e8;">Facebook</span></a>
                 <a href="https://instagram.com/marshalom" target="_blank" class="card-box" style="text-decoration:none; color:inherit;"><span style="font-size:24px; display:block;">📸</span><span style="font-size:8px; color:#c0d8e8;">Instagram</span></a>
@@ -2223,7 +2205,7 @@ def api_jobs_apply():
     phone = body.get('phone', '')
     email = body.get('email', '')
     id_number = body.get('id_number', '')
-    selfie_photo = body.get('selfie_photo')  # optional, base64
+    selfie_photo = body.get('selfie_photo')
     name = user.get('first_name', '') if user else body.get('name', 'ስም የለም')
     username = user.get('username', '') if user else ''
     user_id = user.get('id') if user else None
@@ -2231,7 +2213,7 @@ def api_jobs_apply():
 
     caption = f"💼 አዲስ የስራ ማመልከቻ! (ID: {app_id})\nስራ: {job_title}\nስም: {name} (@{username or 'የለም'})\nስልክ: {phone}\nኢሜይል: {email or 'የለም'}\nመታወቂያ ቁ.: {id_number or 'የለም'}\nመታወቂያ: tg://user?id={user_id}"
     if selfie_photo:
-        caption += "\n📸 ሰልፊ ተያይዟል (አድሚን dashboard ውስጥ ይታያል)"
+        caption += "\n📸 ሰልፊ ተያይዟል"
     requests.post(f"{TELEGRAM_URL}/sendMessage", json={'chat_id': HR_CHANNEL_ID, 'text': caption})
     requests.post(f"{TELEGRAM_URL}/sendMessage", json={'chat_id': OWNER_CHAT_ID, 'text': caption})
     return jsonify({"ok": True})
@@ -2284,7 +2266,6 @@ def api_ai_chat():
 
     ai_reply = ask_deepseek(user_message)
     if ai_reply:
-        # Summarize to Amharic for the owner, regardless of what language the customer used
         summary_prompt = f"Summarize this customer conversation in ONE short Amharic sentence for the business owner. Customer said: \"{user_message}\" | AI replied: \"{ai_reply}\""
         amharic_summary = ask_deepseek(summary_prompt) or user_message
         requests.post(f"{TELEGRAM_URL}/sendMessage", json={
@@ -2299,7 +2280,7 @@ def api_ai_chat():
         })
         return jsonify({"ok": True, "reply": AI_BUSY_MESSAGE})
 
-# ===== ሁሉንም ገጾች ራስ-ገዝ ማዋቀሪያ (Site Config: phones, social, banks, news, tips, discounts) =====
+# ===== ሁሉንም ገጾች ራስ-ገዝ ማዋቀሪያ =====
 @app.route('/api/config/<key>')
 def api_get_config(key):
     return jsonify(get_config(key, []))
@@ -2312,7 +2293,7 @@ def api_set_config(key):
     set_config(key, body.get('value'))
     return jsonify({"ok": True})
 
-# ===== የስራ ማመልከቻ አስተዳደር (Job Applications) =====
+# ===== የስራ ማመልከቻ አስተዳደር =====
 @app.route('/api/admin/applications')
 def api_admin_applications():
     if not require_admin():
@@ -2344,7 +2325,7 @@ def api_admin_generate_credentials():
     if not require_admin():
         return jsonify({"error": "forbidden"}), 403
     body = request.get_json(silent=True) or {}
-    role = body.get('role', 'employee')  # 'team_leader' or 'employee'
+    role = body.get('role', 'employee')
     full_name = body.get('full_name', 'New User')
     position = body.get('position', '')
     username = body.get('username') or (full_name.lower().replace(' ', '') + str(random.randint(100,999)))
@@ -2355,7 +2336,7 @@ def api_admin_generate_credentials():
     emp = get_employee_by_username(username)
     return jsonify({"ok": True, "username": username, "password": temp_password, "internal_email": emp.get('internal_email') if emp else None})
 
-# ===== የህዝብ ምስክርነት (Public Testimonials) =====
+# ===== የህዝብ ምስክርነት =====
 @app.route('/api/testimonials')
 def api_testimonials():
     return jsonify(get_testimonials())
@@ -2372,7 +2353,7 @@ def api_testimonials_add():
     add_testimonial(name, username, message)
     return jsonify({"ok": True})
 
-# ===== የውስጥ መልእክት ሳጥን (Internal Inbox) =====
+# ===== የውስጥ መልእክት ሳጥን =====
 @app.route('/api/message/send', methods=['POST'])
 def api_message_send():
     body = request.get_json(silent=True) or {}
@@ -2380,13 +2361,12 @@ def api_message_send():
     sender_name = user.get('first_name', '') if user else body.get('name', 'ስም የለም')
     sender_username = user.get('username', '') if user else ''
     sender_user_id = user.get('id') if user else None
-    recipient_type = body.get('recipient_type', 'admin')  # 'admin' or 'team_leader'
-    recipient_username = body.get('recipient_username')  # required if team_leader
+    recipient_type = body.get('recipient_type', 'admin')
+    recipient_username = body.get('recipient_username')
     message = body.get('message', '').strip()
     if not message:
         return jsonify({"ok": False}), 400
     send_internal_message(sender_name, sender_username, sender_user_id, recipient_type, recipient_username, message)
-    # Also notify live via Telegram
     target_chat = OWNER_CHAT_ID
     if recipient_type == 'team_leader' and recipient_username:
         emp = get_employee_by_username(recipient_username)
@@ -2406,12 +2386,11 @@ def api_message_inbox():
         user = verify_telegram_webapp_data(init_data)
         if user and is_admin_chat(user.get('id')):
             return jsonify(get_inbox(recipient_type='admin'))
-        # team leader authorized via tl_username/tl_password
         tl_username = body.get('tl_username')
         return jsonify(get_inbox(recipient_type='team_leader', recipient_username=tl_username))
     return jsonify({"error": "forbidden"}), 403
 
-# ===== Applications ካታሎግ (Portfolio) =====
+# ===== Applications ካታሎግ =====
 @app.route('/api/portfolio')
 def api_portfolio():
     return jsonify(get_portfolio_apps())
@@ -2489,7 +2468,7 @@ def api_team_reset_password():
         })
     return jsonify({"ok": True, "temp_password": temp_pw})
 
-# ===== ⚙️ Admin Dashboard Mini App (ለባለቤት ብቻ) =====
+# ===== ⚙️ Admin Dashboard Mini App =====
 ADMIN_HTML = """
 <!DOCTYPE html>
 <html lang="am">
@@ -2635,7 +2614,6 @@ def admin_dashboard():
     return render_template_string(ADMIN_HTML)
 
 def require_admin():
-    """Verifies the X-Init-Data header belongs to the owner OR a password-authenticated admin session."""
     init_data = request.headers.get('X-Init-Data', '')
     user = verify_telegram_webapp_data(init_data)
     if not user:
@@ -2643,7 +2621,6 @@ def require_admin():
     return is_admin_chat(user.get('id'))
 
 def is_authorized_manager(body):
-    """Authorizes admin (via Telegram initData) OR a team_leader (via username+password in body)."""
     init_data = request.headers.get('X-Init-Data', '')
     user = verify_telegram_webapp_data(init_data)
     if user and is_admin_chat(user.get('id')):
@@ -2697,7 +2674,7 @@ def api_admin_add_product():
         return jsonify({"error": "forbidden"}), 403
     body = request.get_json(silent=True) or {}
     photos = body.get('photos') or ([body.get('photo_url')] if body.get('photo_url') else [])
-    photos = [p for p in photos if p][:3]  # up to 3 photos
+    photos = [p for p in photos if p][:3]
     new_id = add_product(body.get('name'), body.get('category'), body.get('description'), photos)
     return jsonify({"ok": True, "id": new_id})
 
@@ -2708,10 +2685,7 @@ def api_admin_delete_product(product_id):
     delete_product(product_id)
     return jsonify({"ok": True})
 
-# ===== ዋና ሃንድለር =====
 def download_telegram_photo_as_base64(file_id):
-    """Downloads a Telegram photo server-side and returns it as a base64 data URI,
-    so we never expose the bot token in an <img src> that reaches the browser."""
     try:
         file_info = requests.get(f"{TELEGRAM_URL}/getFile", params={'file_id': file_id}, timeout=15).json()
         if not file_info.get('ok'):
@@ -2726,15 +2700,13 @@ def download_telegram_photo_as_base64(file_id):
         return None
 
 def handle_ai_channel_post(post):
-    """Reads a new post from @MarshalomAI and routes it:
-    #ምርት -> auto-added product | #ስራ -> auto-added job | no tag -> auto-promo to @MarshalomTech"""
     chat = post.get('chat', {})
     chat_username = f"@{chat.get('username', '')}" if chat.get('username') else str(chat.get('id'))
     if chat_username != AI_CHANNEL_ID and str(chat.get('id')) != AI_CHANNEL_ID:
-        return  # not the channel we care about
+        return
 
     caption = post.get('caption') or post.get('text') or ''
-    photos = post.get('photo')  # list of PhotoSize, largest last
+    photos = post.get('photo')
     photo_b64 = None
     if photos:
         largest = photos[-1]
@@ -2766,7 +2738,6 @@ def handle_ai_channel_post(post):
         requests.post(f"{TELEGRAM_URL}/sendMessage", json={'chat_id': OWNER_CHAT_ID, 'text': f"✅ አዲስ ስራ ከ AI ቻናል ተጨመረ: {title}"})
 
     else:
-        # No hashtag - treat as a general promotion, auto-enhance/translate, add to rotation, and post immediately
         count = add_promo(caption)
         post_random_promo()
         requests.post(f"{TELEGRAM_URL}/sendMessage", json={'chat_id': OWNER_CHAT_ID, 'text': f"✅ አዲስ ማስታወቂያ ከ AI ቻናል ወደ {CHANNEL_ID} ተልኳል"})
@@ -2782,7 +2753,6 @@ def index():
     try:
         data = request.get_json(silent=True)
 
-        # ===== Handle posts from @MarshalomAI channel (auto-import products/jobs/promos) =====
         if data and 'channel_post' in data:
             handle_ai_channel_post(data['channel_post'])
             return "OK"
@@ -2795,7 +2765,6 @@ def index():
         user = msg.get('from', {})
         text = msg.get('text', '')
 
-        # Customer info
         name = user.get('first_name', '')
         if user.get('last_name'):
             name += ' ' + user['last_name']
@@ -2811,10 +2780,8 @@ def index():
 
         url = f"{TELEGRAM_URL}/sendMessage"
 
-        # Track this customer for the admin dashboard
         upsert_customer(user_id, name, username)
 
-        # ===== Data sent from the Mini App (e.g. "ask price" button tapped) =====
         if 'web_app_data' in msg:
             try:
                 wa_data = json.loads(msg['web_app_data'].get('data', '{}'))
@@ -2833,13 +2800,9 @@ def index():
                 })
             return "OK"
 
-        # ===== የይለፍ ቃል ማረጋገጫ ትዕዛዞች (ከየትኛውም መሳሪያ/አካውንት ይሰራል) =====
-
-        # /admin <password> - full admin access from ANY telegram account/device
         if text.startswith('/admin'):
             parts = text.split(' ', 1)
             if len(parts) == 2:
-                # password provided - try to authenticate
                 entered = parts[1].strip()
                 if (ADMIN_PASSWORD and entered == ADMIN_PASSWORD) or (ADMIN_PASSWORD_2 and entered == ADMIN_PASSWORD_2):
                     set_session(chat_id, 'admin')
@@ -2848,14 +2811,12 @@ def index():
                     requests.post(url, json={'chat_id': chat_id, 'text': '❌ የተሳሳተ የይለፍ ቃል።'})
                 return "OK"
             elif is_admin_chat(chat_id):
-                # already authenticated (owner or valid session) - open dashboard
                 send_with_webapp_button(chat_id, '⚙️ የአድሚን ዳሽቦርድ', '⚙️ ዳሽቦርድ ክፈት', '/webapp#page-admin')
                 return "OK"
             else:
                 requests.post(url, json={'chat_id': chat_id, 'text': '🔒 እባክዎ የይለፍ ቃል ያስገቡ፡ /admin የይለፍ_ቃል'})
                 return "OK"
 
-        # /technical <password> - limited technical access
         if text.startswith('/technical'):
             parts = text.split(' ', 1)
             if len(parts) == 2:
@@ -2873,13 +2834,11 @@ def index():
                 requests.post(url, json={'chat_id': chat_id, 'text': '🔒 እባክዎ የይለፍ ቃል ያስገቡ፡ /technical የይለፍ_ቃል'})
                 return "OK"
 
-        # /logout - clear any active session (admin/technical/employee)
         if text == '/logout':
             clear_session(chat_id)
             requests.post(url, json={'chat_id': chat_id, 'text': '✅ ወጥተዋል (logged out)።'})
             return "OK"
 
-        # /login <username> <password> - employee login, from any device
         if text.startswith('/login '):
             parts = text.split(' ', 2)
             if len(parts) == 3:
@@ -2900,7 +2859,6 @@ def index():
                 requests.post(url, json={'chat_id': chat_id, 'text': '🔒 ይህን ይጠቀሙ፡ /login username password'})
             return "OK"
 
-        # /setpassword <new_password> - employee sets/changes their own password
         if text.startswith('/setpassword '):
             session = get_session(chat_id)
             if session and session['role'] == 'employee':
@@ -2915,7 +2873,6 @@ def index():
                 requests.post(url, json={'chat_id': chat_id, 'text': '🔒 መጀመሪያ ይግቡ፡ /login username password'})
             return "OK"
 
-        # /resetpassword <username> - admin or team_leader resets an employee's password
         if text.startswith('/resetpassword '):
             if is_team_leader_or_admin(chat_id):
                 target_username = text[len('/resetpassword '):].strip()
@@ -2932,7 +2889,6 @@ def index():
                 requests.post(url, json={'chat_id': chat_id, 'text': '🚫 ይህ ትዕዛዝ ለአድሚን/ቲም ሊደር ብቻ ነው።'})
             return "OK"
 
-        # /setrole <username> <employee|team_leader> - admin only
         if text.startswith('/setrole '):
             if is_admin_chat(chat_id):
                 parts = text[len('/setrole '):].split(' ', 1)
@@ -2945,7 +2901,6 @@ def index():
                 requests.post(url, json={'chat_id': chat_id, 'text': '🚫 ይህ ትዕዛዝ ለአድሚን ብቻ ነው።'})
             return "OK"
 
-        # /feedback <text> - any customer can leave feedback
         if text.startswith('/feedback '):
             feedback_text = text[len('/feedback '):].strip()
             if feedback_text:
@@ -2955,7 +2910,6 @@ def index():
                 requests.post(url, json={'chat_id': chat_id, 'text': '❌ ባዶ አስተያየት አይቀበልም።'})
             return "OK"
 
-        # /viewfeedback - admin views recent customer feedback
         if text == '/viewfeedback':
             if is_admin_chat(chat_id):
                 items = get_recent_feedback(20)
@@ -2968,7 +2922,6 @@ def index():
                 requests.post(url, json={'chat_id': chat_id, 'text': '🚫 ይህ ትዕዛዝ ለአድሚን ብቻ ነው።'})
             return "OK"
 
-        # /myprofile - employee views their own profile
         if text == '/myprofile':
             session = get_session(chat_id)
             if session and session['role'] == 'employee':
@@ -2996,10 +2949,7 @@ def index():
                 requests.post(url, json={'chat_id': chat_id, 'text': '🔒 መጀመሪያ ይግቡ፡ /login username password'})
             return "OK"
 
-        # ===== Admin-only commands (owner OR password-authenticated admin, any device) =====
         if is_admin_chat(chat_id):
-
-            # /addemployee username|password|full_name|position|salary
             if text.startswith('/addemployee '):
                 try:
                     parts = text[len('/addemployee '):].split('|')
@@ -3013,7 +2963,6 @@ def index():
                     })
                 return "OK"
 
-            # /employees - list all employees
             if text == '/employees':
                 emps = list_employees()
                 if emps:
@@ -3023,7 +2972,6 @@ def index():
                 requests.post(url, json={'chat_id': chat_id, 'text': f"👥 ሰራተኞች:\n\n{listing}"})
                 return "OK"
 
-            # /setbonus username amount
             if text.startswith('/setbonus '):
                 parts = text[len('/setbonus '):].split(' ', 1)
                 if len(parts) == 2:
@@ -3033,7 +2981,6 @@ def index():
                     requests.post(url, json={'chat_id': chat_id, 'text': "❌ ይህን ይጠቀሙ፡ /setbonus username መጠን"})
                 return "OK"
 
-            # /warn username warning_text
             if text.startswith('/warn '):
                 parts = text[len('/warn '):].split(' ', 1)
                 if len(parts) == 2:
@@ -3043,7 +2990,6 @@ def index():
                     requests.post(url, json={'chat_id': chat_id, 'text': "❌ ይህን ይጠቀሙ፡ /warn username ጽሑፍ"})
                 return "OK"
 
-            # /addtask username task_text
             if text.startswith('/addtask '):
                 parts = text[len('/addtask '):].split(' ', 1)
                 if len(parts) == 2:
@@ -3053,7 +2999,6 @@ def index():
                     requests.post(url, json={'chat_id': chat_id, 'text': "❌ ይህን ይጠቀሙ፡ /addtask username ጽሑፍ"})
                 return "OK"
 
-            # /seedproducts - one-time load of the 5 real products with photos
             if text == '/seedproducts':
                 seed_data = [
                     ("CALUS VC9 4G Outdoor Solar Security Camera", "CCTV ካሜራ",
@@ -3077,7 +3022,6 @@ def index():
                 requests.post(url, json={'chat_id': chat_id, 'text': f"✅ {len(seed_data)} ምርቶች ተጨምረዋል! /admin → 🛍️ ምርቶች tab ላይ ይመልከቱ።"})
                 return "OK"
 
-            # /addpromo <text> - add a new promo to rotation
             if text.startswith('/addpromo '):
                 promo_text = text[len('/addpromo '):].strip()
                 if promo_text:
@@ -3090,19 +3034,16 @@ def index():
                     requests.post(url, json={'chat_id': chat_id, 'text': "❌ ባዶ ጽሑፍ አይቀበልም።"})
                 return "OK"
 
-            # /promocount - check how many promos stored
             if text == '/promocount':
                 count = len(load_promos())
                 requests.post(url, json={'chat_id': chat_id, 'text': f"📦 አጠቃላይ ማስታወቂያዎች: {count}"})
                 return "OK"
 
-            # /postnow - manually trigger a promo post immediately (for testing)
             if text == '/postnow':
                 post_random_promo()
                 requests.post(url, json={'chat_id': chat_id, 'text': "✅ ማስታወቂያ ወደ ቻናል ተልኳል።"})
                 return "OK"
 
-            # /send <user_id> <message> - message a person from the bot
             if text.startswith('/send '):
                 try:
                     parts = text.split(' ', 2)
@@ -3121,20 +3062,17 @@ def index():
                     })
                 return "OK"
 
-        # Forward every incoming message to owner (except owner's own admin commands, handled above)
         requests.post(
             f"{TELEGRAM_URL}/forwardMessage",
             json={'chat_id': OWNER_CHAT_ID, 'from_chat_id': chat_id, 'message_id': msg['message_id']}
         )
         requests.post(url, json={'chat_id': OWNER_CHAT_ID, 'text': info})
 
-        # ===== /start handling, including price-inquiry deep link (?start=price) =====
         if text.startswith('/start'):
             parts = text.split(' ', 1)
             start_param = parts[1] if len(parts) > 1 else None
 
             if start_param == 'price':
-                # Customer tapped "ዋጋ ጠይቁ" button from a promo post
                 requests.post(url, json={
                     'chat_id': chat_id,
                     'text': '✅ ጥያቄዎ ደርሶናል! ስለ ዋጋ በቅርቡ በዚሁ ቦት በኩል ምላሽ ያገኛሉ። እናመሰግናለን! 🙏'
@@ -3145,33 +3083,10 @@ def index():
                 })
                 return "OK"
 
-            # Normal /start
-            requests.post(url, json={'chat_id': chat_id, 'text': WELCOME_MESSAGE})
-            send_with_webapp_button(chat_id, '🛍️ ካታሎግ ለማየት ይህን ይጫኑ', '🛍️ ምርቶች ይመልከቱ', '/webapp')
-            requests.post(url, json={
-                'chat_id': chat_id,
-                'text': '📢 ቻናላችንን ይቀላቀሉ',
-                'reply_markup': {'inline_keyboard': [[{'text': '📢 ቻናላችንን ይቀላቀሉ', 'url': 'https://t.me/MarshalomTech'}]]}
-            })
-            requests.post(url, json={
-                'chat_id': chat_id,
-                'text': '📞 ስልክ ቁጥርዎን ማጋራት ይፈልጋሉ? ከታች ያለውን ቁልፍ ይጫኑ (አማራጭ ነው)',
-                'reply_markup': {
-                    'keyboard': [[
-                        {'text': '📞 ስልክ ቁጥር አጋራ', 'request_contact': True}
-                    ]],
-                    'resize_keyboard': True,
-                    'one_time_keyboard': True
-                }
-            })
-            requests.post(url, json={
-                'chat_id': OWNER_CHAT_ID,
-                'text': f"{info}\n\n🤖 *AI መልስ:*\nWELCOME_MESSAGE",
-                'parse_mode': 'Markdown'
-            })
+            # Normal /start - opens mini app directly
+            send_with_webapp_button(chat_id, '🚀 Marshalom Application', '🚀 ክፈት', '/webapp')
             return "OK"
 
-        # Handle shared contact
         if 'contact' in msg:
             contact = msg['contact']
             phone = contact.get('phone_number', 'N/A')
@@ -3182,7 +3097,6 @@ def index():
             requests.post(url, json={'chat_id': chat_id, 'text': '✅ አመሰግናለሁ! ስልክ ቁጥርዎ ደርሶናል።'})
             return "OK"
 
-        # AI reply for regular messages
         ai_reply = ask_deepseek(text)
         if ai_reply:
             reply = f"🤖 *Marshalom AI ረዳት*\n\n{ai_reply}"
@@ -3203,8 +3117,6 @@ def index():
         print(f"Error: {e}")
         return "OK"
 
-
-# Initialize database table and start the promo scheduler when the app boots
 init_db()
 schedule_daily_promos()
 
