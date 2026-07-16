@@ -1,15 +1,17 @@
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, render_template_string, send_from_directory
 import requests
 import os
 import random
 import hmac
 import hashlib
 import json
+import base64
 from urllib.parse import parse_qsl
 import psycopg
 from datetime import datetime, timedelta
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 
@@ -23,13 +25,171 @@ AI_CHANNEL_ID = os.environ.get("AI_CHANNEL_ID", "@MarshalomAI")
 PRICE_CHANNEL_ID = os.environ.get("PRICE_CHANNEL_ID", "@Pricefrombot")
 HR_CHANNEL_ID = os.environ.get("HR_CHANNEL_ID", "@Marshalomet")
 DATABASE_URL = os.environ.get("DATABASE_URL")
-BASE_URL = os.environ.get("BASE_URL", "https://lwam-bot.onrender.com")
+BASE_URL = os.environ.get("BASE_URL", "https://your-app.onrender.com")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
 ADMIN_PASSWORD_2 = os.environ.get("ADMIN_PASSWORD_2")
 TECHNICAL_PASSWORD = os.environ.get("TECHNICAL_PASSWORD")
 # ====================================
 
 TELEGRAM_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
+ETHIOPIA_TZ = pytz.timezone("Africa/Addis_Ababa")
+
+# ===== ለፋይል መጫኛ ማዋቀር =====
+UPLOAD_FOLDER = 'uploads'
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg', 'gif'}
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+# ===== የቋንቋ ስርዓት (4 ቋንቋዎች) =====
+LANGUAGES = {
+    'am': 'አማርኛ',
+    'en': 'English',
+    'ti': 'ትግርኛ',
+    'or': 'Afaan Oromoo'
+}
+
+DEFAULT_LANG = 'am'
+
+def get_translation(text_key, lang='am'):
+    """በተመረጠው ቋንቋ የተረጎመ ጽሑፍ ይመልሳል"""
+    translations = {
+        'welcome': {
+            'am': 'እንኳን ደህና መጡ!',
+            'en': 'Welcome!',
+            'ti': 'እንኳዕ ደሓን መጻእኩም!',
+            'or': 'Baga nagaan dhufte!'
+        },
+        'invite': {
+            'am': 'የእኛ ሞባይል አፕሊኬሽን እንዲከፍቱ እንጋብዘዎታለን',
+            'en': 'We invite you to open our mobile application',
+            'ti': 'ናይ ሞባይል ኣፕሊኬሽንና ክትከፍቱ ንዕድመኩም',
+            'or': 'App mobile keenya banuuf si afeerra'
+        },
+        'click_to_open': {
+            'am': 'ለመከፈት እዚህ ጠቅ አድርጉ',
+            'en': 'Click here to open',
+            'ti': 'ንምክፋት አብዚ ጠውቕ',
+            'or': 'Banuuf asi tuqi'
+        },
+        'products': {
+            'am': 'ምርቶች',
+            'en': 'Products',
+            'ti': 'ምርቶች',
+            'or': 'Oomishaalee'
+        },
+        'jobs': {
+            'am': 'ክፍት ስራ',
+            'en': 'Jobs',
+            'ti': 'ክፍቲ ስራሕ',
+            'or': 'Hojii Banaa'
+        },
+        'contact': {
+            'am': 'ይደውሉ',
+            'en': 'Call',
+            'ti': 'ደውሉ',
+            'or': 'Bilbilaa'
+        },
+        'social': {
+            'am': 'ማህበራዊ',
+            'en': 'Social',
+            'ti': 'ማህበራዊ',
+            'or': 'Hawaasa'
+        },
+        'home': {
+            'am': 'መነሻ',
+            'en': 'Home',
+            'ti': 'መነሻ',
+            'or': 'Mana'
+        },
+        'back': {
+            'am': '‹ ተመለስ',
+            'en': '‹ Back',
+            'ti': '‹ ተመለስ',
+            'or': '‹ Duuba'
+        },
+        'share': {
+            'am': 'ማጋሪያ',
+            'en': 'Share',
+            'ti': 'ኣጋሩ',
+            'or': 'Qooda'
+        },
+        'news': {
+            'am': 'ዜና',
+            'en': 'News',
+            'ti': 'ዜና',
+            'or': 'Oduu'
+        },
+        'discount': {
+            'am': 'ቅናሽ',
+            'en': 'Discount',
+            'ti': 'ቅናሽ',
+            'or': 'Hir\'aa'
+        },
+        'assistant': {
+            'am': 'ረዳት',
+            'en': 'Assistant',
+            'ti': 'ረዳት',
+            'or': 'Gargaaraa'
+        },
+        'support': {
+            'am': 'ድጋፍ',
+            'en': 'Support',
+            'ti': 'ድጋፍ',
+            'or': 'Deggersa'
+        },
+        'promo': {
+            'am': 'ማስታወቂያ',
+            'en': 'Promo',
+            'ti': 'ማስታወቂያ',
+            'or': 'Beeksisa'
+        },
+        'tips': {
+            'am': 'ምክሮች',
+            'en': 'Tips',
+            'ti': 'ምኽርታት',
+            'or': 'Gorsa'
+        },
+        'banks': {
+            'am': 'ባንክ',
+            'en': 'Banks',
+            'ti': 'ባንክ',
+            'or': 'Baankii'
+        },
+        'feedback': {
+            'am': 'አስተያየት',
+            'en': 'Feedback',
+            'ti': 'ኣስተያየት',
+            'or': 'Yaada'
+        },
+        'admin': {
+            'am': 'አድሚን',
+            'en': 'Admin',
+            'ti': 'ኣድሚን',
+            'or': 'Admin'
+        },
+        'teamleader': {
+            'am': 'ቲም ሊደር',
+            'en': 'Team Leader',
+            'ti': 'መራሒ ጉጅለ',
+            'or': 'Hoogganaa'
+        },
+        'employee': {
+            'am': 'ሰራተኛ',
+            'en': 'Employee',
+            'ti': 'ሰራተኛ',
+            'or': 'Hojjetaa'
+        },
+        'applications': {
+            'am': 'Applications',
+            'en': 'Applications',
+            'ti': 'መተግበሪያታት',
+            'or': 'Applikashinii'
+        }
+    }
+    return translations.get(text_key, {}).get(lang, translations.get(text_key, {}).get(DEFAULT_LANG, text_key))
 
 def send_with_webapp_button(chat_id, text, button_text, webapp_path):
     webapp_url = f"{BASE_URL.rstrip('/')}{webapp_path}"
@@ -40,15 +200,12 @@ def send_with_webapp_button(chat_id, text, button_text, webapp_path):
     })
     resp_json = result.json() if result.ok or result.content else {}
     if not resp_json.get('ok'):
-        print(f"⚠️ web_app button send failed: {resp_json.get('description')}")
         requests.post(f"{TELEGRAM_URL}/sendMessage", json={
             'chat_id': chat_id,
             'text': text,
             'reply_markup': {'inline_keyboard': [[{'text': button_text, 'url': webapp_url}]]}
         })
     return resp_json
-
-ETHIOPIA_TZ = pytz.timezone("Africa/Addis_Ababa")
 
 # ===== ዳታቤዝ (Postgres) =====
 def get_db_connection():
@@ -65,10 +222,7 @@ def init_db():
             CREATE TABLE IF NOT EXISTS promos (
                 id SERIAL PRIMARY KEY,
                 text TEXT NOT NULL,
-                text_am TEXT,
-                text_en TEXT,
-                text_ti TEXT,
-                text_or TEXT,
+                text_am TEXT, text_en TEXT, text_ti TEXT, text_or TEXT,
                 created_at TIMESTAMP DEFAULT NOW()
             )
         """)
@@ -79,11 +233,8 @@ def init_db():
         cur.execute("""
             CREATE TABLE IF NOT EXISTS products (
                 id SERIAL PRIMARY KEY,
-                name TEXT NOT NULL,
-                category TEXT NOT NULL,
-                description TEXT,
-                photo_url TEXT,
-                photos TEXT,
+                name TEXT NOT NULL, category TEXT NOT NULL,
+                description TEXT, photo_url TEXT, photos TEXT,
                 created_at TIMESTAMP DEFAULT NOW()
             )
         """)
@@ -91,8 +242,7 @@ def init_db():
         cur.execute("""
             CREATE TABLE IF NOT EXISTS customers (
                 user_id BIGINT PRIMARY KEY,
-                name TEXT,
-                username TEXT,
+                name TEXT, username TEXT,
                 message_count INTEGER DEFAULT 1,
                 first_seen TIMESTAMP DEFAULT NOW(),
                 last_seen TIMESTAMP DEFAULT NOW()
@@ -101,21 +251,16 @@ def init_db():
         cur.execute("""
             CREATE TABLE IF NOT EXISTS price_inquiries (
                 id SERIAL PRIMARY KEY,
-                user_id BIGINT,
-                name TEXT,
-                username TEXT,
-                product_name TEXT,
-                created_at TIMESTAMP DEFAULT NOW()
+                user_id BIGINT, name TEXT, username TEXT,
+                product_name TEXT, created_at TIMESTAMP DEFAULT NOW()
             )
         """)
         cur.execute("ALTER TABLE price_inquiries ADD COLUMN IF NOT EXISTS product_name TEXT")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS jobs (
                 id SERIAL PRIMARY KEY,
-                title TEXT NOT NULL,
-                description TEXT,
-                location TEXT,
-                pdf_url TEXT,
+                title TEXT NOT NULL, description TEXT,
+                location TEXT, pdf_url TEXT,
                 active BOOLEAN DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW()
             )
@@ -124,16 +269,10 @@ def init_db():
         cur.execute("""
             CREATE TABLE IF NOT EXISTS job_applications (
                 id SERIAL PRIMARY KEY,
-                job_id INTEGER,
-                job_title TEXT,
-                user_id BIGINT,
-                name TEXT,
-                username TEXT,
-                phone TEXT,
-                email TEXT,
-                id_number TEXT,
-                selfie_photo TEXT,
-                status TEXT DEFAULT 'pending',
+                job_id INTEGER, job_title TEXT,
+                user_id BIGINT, name TEXT, username TEXT,
+                phone TEXT, email TEXT, id_number TEXT,
+                selfie_photo TEXT, status TEXT DEFAULT 'pending',
                 created_at TIMESTAMP DEFAULT NOW()
             )
         """)
@@ -143,37 +282,28 @@ def init_db():
         cur.execute("ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending'")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS site_config (
-                key TEXT PRIMARY KEY,
-                value TEXT
+                key TEXT PRIMARY KEY, value TEXT
             )
         """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS internal_messages (
                 id SERIAL PRIMARY KEY,
-                sender_name TEXT,
-                sender_username TEXT,
-                sender_user_id BIGINT,
-                recipient_type TEXT,
-                recipient_username TEXT,
-                message TEXT,
-                created_at TIMESTAMP DEFAULT NOW()
+                sender_name TEXT, sender_username TEXT, sender_user_id BIGINT,
+                recipient_type TEXT, recipient_username TEXT,
+                message TEXT, created_at TIMESTAMP DEFAULT NOW()
             )
         """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS testimonials (
                 id SERIAL PRIMARY KEY,
-                name TEXT,
-                username TEXT,
-                message TEXT,
-                created_at TIMESTAMP DEFAULT NOW()
+                name TEXT, username TEXT,
+                message TEXT, created_at TIMESTAMP DEFAULT NOW()
             )
         """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS portfolio_apps (
                 id SERIAL PRIMARY KEY,
-                name TEXT,
-                photo_url TEXT,
-                file_url TEXT,
+                name TEXT, photo_url TEXT, file_url TEXT,
                 created_at TIMESTAMP DEFAULT NOW()
             )
         """)
@@ -182,16 +312,11 @@ def init_db():
                 id SERIAL PRIMARY KEY,
                 username TEXT UNIQUE NOT NULL,
                 password TEXT NOT NULL,
-                full_name TEXT,
-                position TEXT,
-                salary TEXT,
-                bonus TEXT DEFAULT '',
-                warnings TEXT DEFAULT '',
-                tasks TEXT DEFAULT '',
-                role TEXT DEFAULT 'employee',
+                full_name TEXT, position TEXT, salary TEXT,
+                bonus TEXT DEFAULT '', warnings TEXT DEFAULT '',
+                tasks TEXT DEFAULT '', role TEXT DEFAULT 'employee',
                 must_change_password BOOLEAN DEFAULT TRUE,
-                telegram_chat_id BIGINT,
-                internal_email TEXT,
+                telegram_chat_id BIGINT, internal_email TEXT, photo_url TEXT,
                 created_at TIMESTAMP DEFAULT NOW()
             )
         """)
@@ -199,14 +324,12 @@ def init_db():
         cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT TRUE")
         cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS telegram_chat_id BIGINT")
         cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS internal_email TEXT")
+        cur.execute("ALTER TABLE employees ADD COLUMN IF NOT EXISTS photo_url TEXT")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS feedback (
                 id SERIAL PRIMARY KEY,
-                user_id BIGINT,
-                name TEXT,
-                username TEXT,
-                text TEXT,
-                created_at TIMESTAMP DEFAULT NOW()
+                user_id BIGINT, name TEXT, username TEXT,
+                text TEXT, created_at TIMESTAMP DEFAULT NOW()
             )
         """)
         cur.execute("""
@@ -224,7 +347,7 @@ def init_db():
     except Exception as e:
         print(f"DB init error: {e}")
 
-# ===== የማስታወቂያ ማከማቻ (Promo storage) =====
+# ===== የማስታወቂያ ማከማቻ =====
 def load_promos():
     if not DATABASE_URL:
         return []
@@ -276,7 +399,7 @@ def get_promos_multilang():
         print(f"DB get_promos_multilang error: {e}")
         return []
 
-# ===== የምርት ካታሎግ (Products) =====
+# ===== የምርት ካታሎግ =====
 def get_products(category=None):
     if not DATABASE_URL:
         return []
@@ -326,7 +449,7 @@ def delete_product(product_id):
     cur.close()
     conn.close()
 
-# ===== የደንበኛ መዝገብ (Customers) =====
+# ===== የደንበኛ መዝገብ =====
 def upsert_customer(user_id, name, username):
     if not DATABASE_URL or not user_id:
         return
@@ -364,7 +487,7 @@ def log_price_inquiry(user_id, name, username, product_name=None):
     except Exception as e:
         print(f"DB log_price_inquiry error: {e}")
 
-# ===== የስራ ማስታወቂያ (Jobs) =====
+# ===== የስራ ማስታወቂያ =====
 def get_jobs():
     if not DATABASE_URL:
         return []
@@ -432,7 +555,7 @@ def set_application_status(app_id, status):
     conn.close()
     return {"user_id": row[0], "name": row[1], "job_title": row[2]} if row else None
 
-# ===== ተለዋዋጭ የድር ጣቢያ ማዋቀሪያ (site_config) =====
+# ===== ተለዋዋጭ የድር ጣቢያ ማዋቀሪያ =====
 def get_config(key, default=None):
     if not DATABASE_URL:
         return default
@@ -501,7 +624,7 @@ def get_customers_list():
         print(f"DB get_customers_list error: {e}")
         return []
 
-# ===== Session (login) management =====
+# ===== Session management =====
 def set_session(chat_id, role, employee_id=None):
     conn = get_db_connection()
     cur = conn.cursor()
@@ -562,7 +685,7 @@ def generate_temp_password():
     import string as _s
     return ''.join(_r.choices(_s.ascii_uppercase + _s.digits, k=8))
 
-# ===== የሰራተኛ አስተዳደር (Employees) =====
+# ===== የሰራተኛ አስተዳደር =====
 def add_employee(username, password, full_name, position, salary):
     first_name_part = full_name.strip().split(' ')[0].lower() if full_name else username
     safe_part = ''.join(c for c in first_name_part if c.isalnum()) or username
@@ -587,49 +710,52 @@ def add_employee(username, password, full_name, position, salary):
 def get_employee_by_credentials(username, password):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT id, full_name, position, salary, bonus, warnings, tasks, role, must_change_password, internal_email FROM employees WHERE username=%s AND password=%s", (username, password))
+    cur.execute("SELECT id, full_name, position, salary, bonus, warnings, tasks, role, must_change_password, internal_email, photo_url FROM employees WHERE username=%s AND password=%s", (username, password))
     row = cur.fetchone()
     cur.close()
     conn.close()
     if row:
         return {"id": row[0], "full_name": row[1], "position": row[2], "salary": row[3], "bonus": row[4],
-                "warnings": row[5], "tasks": row[6], "role": row[7], "must_change_password": row[8], "internal_email": row[9]}
+                "warnings": row[5], "tasks": row[6], "role": row[7], "must_change_password": row[8], 
+                "internal_email": row[9], "photo_url": row[10]}
     return None
 
 def get_employee_by_id(employee_id):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT id, username, full_name, position, salary, bonus, warnings, tasks, role, must_change_password, telegram_chat_id, internal_email FROM employees WHERE id=%s", (employee_id,))
+    cur.execute("SELECT id, username, full_name, position, salary, bonus, warnings, tasks, role, must_change_password, telegram_chat_id, internal_email, photo_url FROM employees WHERE id=%s", (employee_id,))
     row = cur.fetchone()
     cur.close()
     conn.close()
     if row:
         return {"id": row[0], "username": row[1], "full_name": row[2], "position": row[3], "salary": row[4],
                 "bonus": row[5], "warnings": row[6], "tasks": row[7], "role": row[8],
-                "must_change_password": row[9], "telegram_chat_id": row[10], "internal_email": row[11]}
+                "must_change_password": row[9], "telegram_chat_id": row[10], 
+                "internal_email": row[11], "photo_url": row[12]}
     return None
 
 def get_employee_by_username(username):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT id, username, full_name, position, salary, bonus, warnings, tasks, role, must_change_password, telegram_chat_id, internal_email FROM employees WHERE username=%s", (username,))
+    cur.execute("SELECT id, username, full_name, position, salary, bonus, warnings, tasks, role, must_change_password, telegram_chat_id, internal_email, photo_url FROM employees WHERE username=%s", (username,))
     row = cur.fetchone()
     cur.close()
     conn.close()
     if row:
         return {"id": row[0], "username": row[1], "full_name": row[2], "position": row[3], "salary": row[4],
                 "bonus": row[5], "warnings": row[6], "tasks": row[7], "role": row[8],
-                "must_change_password": row[9], "telegram_chat_id": row[10], "internal_email": row[11]}
+                "must_change_password": row[9], "telegram_chat_id": row[10],
+                "internal_email": row[11], "photo_url": row[12]}
     return None
 
 def list_employees():
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT id, username, full_name, position, role FROM employees ORDER BY id")
+    cur.execute("SELECT id, username, full_name, position, role, internal_email, photo_url FROM employees ORDER BY id")
     rows = cur.fetchall()
     cur.close()
     conn.close()
-    return [{"id": r[0], "username": r[1], "full_name": r[2], "position": r[3], "role": r[4]} for r in rows]
+    return [{"id": r[0], "username": r[1], "full_name": r[2], "position": r[3], "role": r[4], "internal_email": r[5], "photo_url": r[6]} for r in rows]
 
 def update_employee_field(username, field, value, append=False):
     conn = get_db_connection()
@@ -666,7 +792,7 @@ def set_employee_chat_id(employee_id, chat_id):
     cur.close()
     conn.close()
 
-# ===== የደንበኛ አስተያየት (Customer Feedback) =====
+# ===== የደንበኛ አስተያየት =====
 def add_feedback(user_id, name, username, text):
     conn = get_db_connection()
     cur = conn.cursor()
@@ -684,7 +810,7 @@ def get_recent_feedback(limit=20):
     conn.close()
     return [{"name": r[0], "username": r[1], "text": r[2], "created_at": str(r[3])} for r in rows]
 
-# ===== የህዝብ ምስክርነት (Public Testimonials) =====
+# ===== የህዝብ ምስክርነት =====
 def add_testimonial(name, username, message):
     conn = get_db_connection()
     cur = conn.cursor()
@@ -702,7 +828,7 @@ def get_testimonials(limit=30):
     conn.close()
     return [{"name": r[0], "username": r[1], "message": r[2], "created_at": str(r[3])} for r in rows]
 
-# ===== የውስጥ መልእክት ሳጥን (Internal Inbox) =====
+# ===== የውስጥ መልእክት ሳጥን =====
 def send_internal_message(sender_name, sender_username, sender_user_id, recipient_type, recipient_username, message):
     conn = get_db_connection()
     cur = conn.cursor()
@@ -730,7 +856,7 @@ def get_inbox(recipient_type=None, recipient_username=None, limit=50):
     return [{"sender_name": r[0], "sender_username": r[1], "sender_user_id": r[2], "recipient_type": r[3],
              "recipient_username": r[4], "message": r[5], "created_at": str(r[6])} for r in rows]
 
-# ===== የ Applications ካታሎግ (Portfolio) =====
+# ===== የ Applications ካታሎግ =====
 def get_portfolio_apps():
     conn = get_db_connection()
     cur = conn.cursor()
@@ -758,7 +884,21 @@ def delete_portfolio_app(app_id):
     cur.close()
     conn.close()
 
-# ===== Telegram WebApp initData ማረጋገጫ (Security) =====
+def get_default_apps():
+    return [
+        {'name': 'Marshalom POS', 'photo': '📱', 'file': None},
+        {'name': 'Shalom CRM', 'photo': '📱', 'file': None},
+        {'name': 'Tech Store', 'photo': '📱', 'file': None},
+        {'name': 'Security Monitor', 'photo': '📱', 'file': None},
+        {'name': 'Inventory Pro', 'photo': '📱', 'file': None},
+        {'name': 'HR Manager', 'photo': '📱', 'file': None},
+        {'name': 'Finance Tracker', 'photo': '📱', 'file': None},
+        {'name': 'Sales Dashboard', 'photo': '📱', 'file': None},
+        {'name': 'Customer Care', 'photo': '📱', 'file': None},
+        {'name': 'Analytics Pro', 'photo': '📱', 'file': None}
+    ]
+
+# ===== Telegram WebApp initData ማረጋገጫ =====
 def verify_telegram_webapp_data(init_data):
     try:
         parsed = dict(parse_qsl(init_data))
@@ -799,18 +939,11 @@ def test():
     result += f"BASE_URL: {BASE_URL}\n"
     result += f"DATABASE_URL: {'✅ SET' if DATABASE_URL else '❌ NOT SET'}\n"
     result += f"📦 የተከማቹ ማስታወቂያዎች: {len(load_promos())}\n"
-
     if DEEPSEEK_API_KEY:
         try:
             url = "https://api.deepseek.com/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-                "Content-Type": "application/json"
-            }
-            payload = {
-                "model": "deepseek-chat",
-                "messages": [{"role": "user", "content": "Hello"}]
-            }
+            headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
+            payload = {"model": "deepseek-chat", "messages": [{"role": "user", "content": "Hello"}]}
             response = requests.post(url, json=payload, headers=headers, timeout=30)
             if response.status_code == 200:
                 result += "\n✅ DeepSeek API is working!"
@@ -820,7 +953,6 @@ def test():
             result += f"\n❌ Error: {str(e)}"
     else:
         result += "\n❌ DEEPSEEK_API_KEY is not set!"
-
     return result
 
 # ===== ሲስተም መመሪያ =====
@@ -848,7 +980,6 @@ WELCOME_MESSAGE = """✨ እንኳን ደህና መጡ ወደ SHALOM TECHNOLOGY!
 BUSY_MESSAGE = """🌟 ማርሻሎም (Marshalom) የቴክኖሎጂ ረዳት 🌟
 ሰላም! መልእክትዎን ስላደረሱን እናመሰግናለን። 🙏
 አሁን ላይ እጅግ በጣም ብዙ ጥያቄዎችን በማስተናገድ ላይ ስለሆንን፣ ትክክለኛ ምላሽ ለእርስዎ ለመስጠት ጥቂት ደቂቃዎች ይጠብቁ። ⏳
-
 📞 አስቸኳይ ከሆነ: 0931556590"""
 
 # ===== DeepSeek AI =====
@@ -857,16 +988,10 @@ def ask_deepseek(text):
         return None
     try:
         url = "https://api.deepseek.com/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-            "Content-Type": "application/json"
-        }
+        headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
         payload = {
             "model": "deepseek-chat",
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": text}
-            ],
+            "messages": [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": text}],
             "max_tokens": 300
         }
         response = requests.post(url, json=payload, headers=headers, timeout=25)
@@ -923,14 +1048,13 @@ Respond with ONLY valid JSON, no markdown fences, no preamble, in this exact sha
         print(f"DeepSeek translate exception: {e}")
         return fallback
 
-# ===== ራስ-ሰር ማስታወቂያ ወደ ቻናል መላክ =====
+# ===== ራስ-ሰር ማስታወቂያ ወደ ቻናል =====
 def post_random_promo():
     promos = load_promos()
     if not promos:
         print("No promos to post.")
         return
     promo_text = random.choice(promos)
-
     reply_markup = {
         'inline_keyboard': [[
             {'text': '💬 ዋጋ ጠይቁ', 'url': f'https://t.me/{BOT_USERNAME}?start=price'}
@@ -948,13 +1072,42 @@ def post_random_promo():
 
 def schedule_daily_promos():
     scheduler = BackgroundScheduler(timezone=ETHIOPIA_TZ)
-    post_hours = [9, 12, 15, 17, 19]
+    post_hours = get_config('auto_promo_hours', [9, 12, 15, 17, 19])
     for hour in post_hours:
         scheduler.add_job(post_random_promo, 'cron', hour=hour, minute=random.randint(0, 30))
     scheduler.start()
     print("✅ Promo scheduler started.")
 
-# ===== 🛍️ የምርት ካታሎግ Mini App (ለደንበኞች) =====
+# ===== ራስ-ሰር ምርት ፎቶ መቀየር =====
+def auto_update_product_photos():
+    """በየ8 ሰዓቱ የምርት ፎቶዎችን ከ@MarshalomAI ቻናል ያመጣል"""
+    try:
+        url = f"{TELEGRAM_URL}/getUpdates"
+        params = {'chat_id': AI_CHANNEL_ID, 'limit': 10}
+        response = requests.get(url, params=params)
+        if response.status_code != 200:
+            return
+        data = response.json()
+        if not data.get('ok'):
+            return
+        for update in data.get('result', []):
+            if 'channel_post' in update:
+                post = update['channel_post']
+                caption = post.get('caption') or post.get('text') or ''
+                if '#ምርት' in caption or '#product' in caption.lower():
+                    photos = post.get('photo')
+                    if photos:
+                        handle_ai_channel_post(post)
+    except Exception as e:
+        print(f"Auto update error: {e}")
+
+def schedule_auto_update():
+    scheduler = BackgroundScheduler(timezone=ETHIOPIA_TZ)
+    scheduler.add_job(auto_update_product_photos, 'interval', hours=8)
+    scheduler.start()
+    print("✅ Auto update scheduler started.")
+
+# ===== 🛍️ የምርት ካታሎግ Mini App =====
 CATALOG_HTML = """
 <!DOCTYPE html>
 <html lang="am">
@@ -967,40 +1120,21 @@ CATALOG_HTML = """
     * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', system-ui, sans-serif; }
     body { background: #0b1219; min-height: 100vh; color: #fff; }
     .app-container { max-width: 420px; width: 100%; margin: 0 auto; min-height: 100vh; background: #17212b; overflow: hidden; padding: 14px; position: relative; }
-
     .header { text-align: center; padding-bottom: 12px; border-bottom: 1px solid #2b3a4a; margin-bottom: 12px; }
     .header .top-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
     .header .lang-selector { display: flex; gap: 4px; }
     .header .lang-selector button { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); color: #8aa3b5; padding: 3px 8px; border-radius: 12px; font-size: 10px; cursor: pointer; }
     .header .lang-selector button.active { background: rgba(74,158,255,0.2); border-color: #4a9eff; color: #4a9eff; }
-    .header .logo-img { width: 40px; height: 40px; border-radius: 10px; object-fit: cover; box-shadow: 0 2px 10px rgba(0,0,0,0.4); animation: logoSpin 6s ease-in-out infinite; }
-    @keyframes logoSpin {
-        0% { transform: rotateY(0deg) rotateX(0deg); }
-        25% { transform: rotateY(360deg) rotateX(0deg); }
-        50% { transform: rotateY(360deg) rotateX(360deg); }
-        100% { transform: rotateY(360deg) rotateX(360deg); }
-    }
-    .menu-btn { transition: transform 0.2s ease; }
-    .menu-btn:active { transform: scale(0.93); }
-    .menu-btn .icon { transition: transform 0.3s ease; display: inline-block; }
-    .menu-btn:hover .icon { transform: scale(1.2) rotate(8deg); }
-    .promo-anim-card { animation: slideInFade 0.5s ease; }
-    @keyframes slideInFade { from { opacity:0; transform: translateX(-15px); } to { opacity:1; transform: translateX(0); } }
-    .product-card { animation: productRotateIn 0.6s ease; cursor: pointer; }
-    @keyframes productRotateIn { from { opacity:0; transform: rotateY(15deg) scale(0.9); } to { opacity:1; transform: rotateY(0) scale(1); } }
-    .fullscreen-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.92); z-index:999; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:20px; }
-    .fullscreen-overlay img { max-width:100%; max-height:60%; border-radius:12px; }
-    .fullscreen-overlay .close-fs { position:absolute; top:20px; right:20px; font-size:28px; color:#fff; cursor:pointer; }
+    .header .logo-img { width: 40px; height: 40px; border-radius: 10px; object-fit: cover; box-shadow: 0 2px 10px rgba(0,0,0,0.4); }
     .header h1 { font-size: 18px; font-weight: 700; background: linear-gradient(90deg,#4a9eff,#7ac7ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-top: 4px; }
     .header .sub { font-size: 11px; color: #8aa3b5; }
-
     .pages { padding: 6px 0 80px; }
     .page { display: none; animation: fadeSlide 0.25s ease; }
     .page.active { display: block; }
     @keyframes fadeSlide { 0% { opacity: 0; transform: translateY(10px); } 100% { opacity: 1; transform: translateY(0); } }
     .page-title { font-size: 15px; font-weight: 600; color: #fff; display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
     .back-btn { background: rgba(255,255,255,0.08); border: none; color: #fff; font-size: 18px; padding: 2px 12px; border-radius: 30px; cursor: pointer; }
-
+    .home-btn { background: rgba(255,255,255,0.08); border: none; color: #fff; font-size: 14px; padding: 2px 12px; border-radius: 30px; cursor: pointer; }
     .menu-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 12px; }
     .menu-btn { border-radius: 14px; padding: 10px 4px; text-align: center; font-size: 9px; font-weight: 500; cursor: pointer; color: #e0edf5; border: none; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
     .menu-btn .icon { font-size: 22px; display: block; margin-bottom: 2px; }
@@ -1021,7 +1155,6 @@ CATALOG_HTML = """
     .menu-btn:nth-child(15){background:linear-gradient(135deg,#1a2a4a,#0a1a3a);}
     .menu-btn:nth-child(16){background:linear-gradient(135deg,#3a2a5a,#2a1a4a);}
     .menu-btn:nth-child(17){background:linear-gradient(135deg,#4a2a3a,#3a1a2a);}
-
     .section-title { color: #b8a84a; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
     .product-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
     .product-card { background: rgba(255,255,255,0.04); border-radius: 14px; overflow: hidden; border: 1px solid rgba(255,255,255,0.06); }
@@ -1032,15 +1165,12 @@ CATALOG_HTML = """
     .product-card .ask-btn { width: 100%; padding: 5px; border: none; border-radius: 8px; color: #fff; font-weight: 600; font-size: 10px; cursor: pointer; background: linear-gradient(135deg,#4a3a1a,#3a2a0a); }
     .channel-link { padding: 8px; background: rgba(74,158,255,0.08); border-radius: 12px; text-align: center; border: 1px dashed #4a9eff; margin-bottom: 10px; }
     .channel-link a { color: #4a9eff; font-weight: 600; text-decoration: none; font-size: 12px; }
-
     .promo-banner { background: linear-gradient(135deg,#4a2a2a,#3a1a1a); border-radius: 12px; padding: 10px 14px; margin-top: 10px; display: flex; align-items: center; gap: 10px; border: 1px solid #4a3a1a; }
     .promo-banner .text { font-size: 12px; color: #c0d8e8; flex: 1; font-weight: 600; }
-
     .bottom-nav { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); max-width: 420px; width: 100%; background: rgba(15,26,36,0.96); backdrop-filter: blur(14px); border-top: 1px solid #2b3a4a; display: flex; justify-content: space-around; padding: 8px 0 14px; }
     .nav-item { color: #6a8a9e; font-size: 8px; text-align: center; cursor: pointer; padding: 2px 6px; }
     .nav-item.active { color: #4a9eff; }
     .nav-item .icon { font-size: 16px; display: block; }
-
     .btn-primary { background: #4a9eff; border: none; border-radius: 30px; padding: 10px; color: #fff; font-weight: 600; font-size: 13px; width: 100%; cursor: pointer; margin-top: 4px; }
     .btn-primary.gold { background: #b8a84a; color: #1a1a2e; }
     .card-box { background: rgba(255,255,255,0.04); border-radius: 12px; padding: 10px; border: 1px solid rgba(255,255,255,0.06); text-align: center; cursor: pointer; }
@@ -1051,10 +1181,12 @@ CATALOG_HTML = """
     .stat-num { font-size: 16px; font-weight: 700; }
     .stat-label { font-size: 7px; color: #8aa3b5; }
     .empty-msg { text-align:center; opacity:0.6; margin-top: 30px; font-size: 12px; }
+    .fullscreen-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.92); z-index:999; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:20px; }
+    .fullscreen-overlay img { max-width:100%; max-height:60%; border-radius:12px; }
+    .fullscreen-overlay .close-fs { position:absolute; top:20px; right:20px; font-size:28px; color:#fff; cursor:pointer; }
 </style>
 </head>
 <body>
-
 <div class="app-container">
     <div class="header">
         <div class="top-row">
@@ -1069,13 +1201,10 @@ CATALOG_HTML = """
         <h1 id="mainTitle">Shalom Technology</h1>
         <div class="sub" id="mainSub">✨ የእርስዎ የደህንነት አጋር ✨</div>
     </div>
-
     <div class="pages" id="pagesContainer">
-
-        <!-- HOME -->
         <div class="page active" id="page-home">
             <div id="homeHeroBox" style="background:linear-gradient(135deg,#1a2a3a,#243447); border-radius:18px; padding:22px 16px; text-align:center; border:1px solid rgba(74,158,255,0.15); box-shadow:0 8px 24px rgba(0,0,0,0.3);">
-                <img src="/static/logo.jpg" style="width:70px; height:70px; border-radius:16px; object-fit:cover; box-shadow:0 4px 16px rgba(0,0,0,0.4); animation: logoSpin 6s ease-in-out infinite;" />
+                <img src="/static/logo.jpg" style="width:70px; height:70px; border-radius:16px; object-fit:cover; box-shadow:0 4px 16px rgba(0,0,0,0.4);" />
                 <div style="color:#fff; font-size:16px; font-weight:700; margin-top:10px;">Shalom Technology</div>
                 <div style="color:#9bb0c0; font-size:11px; margin-top:2px;">✨ የእርስዎ የደህንነት አጋር ✨</div>
                 <button class="btn-primary gold" style="margin-top:16px;" onclick="toggleHomeMenu()">🚀 Marshalom Application</button>
@@ -1109,15 +1238,11 @@ CATALOG_HTML = """
                 📢 ቻናላችን: <a href="https://t.me/MarshalomTech" target="_blank" style="color:#4a9eff; text-decoration:none;">@MarshalomTech</a>
             </div>
         </div>
-
-        <!-- PRODUCTS -->
         <div class="page" id="page-products">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button><span id="pTitle">🛍️ ምርቶች</span></div>
             <div class="product-grid" id="productGrid"><p class="empty-msg">⏳...</p></div>
             <div class="channel-link">📢 <a href="https://t.me/MarshalomTech" target="_blank" id="channelText">ተጨማሪ ምርቶች ለማየት ቻናላችንን ይቀላቀሉ</a> 📢</div>
         </div>
-
-        <!-- CALL -->
         <div class="page" id="page-call">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>📞 <span id="callTitle">ይደውሉ</span></div>
             <div class="grid2" style="margin-top:6px;">
@@ -1147,8 +1272,6 @@ CATALOG_HTML = """
                 <span class="text">ማንኛውም ጊዜ ይደውሉልን — ደስተኞች ነን እርስዎን ለማገልገል!</span>
             </div>
         </div>
-
-        <!-- SOCIAL -->
         <div class="page" id="page-social">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>🌐 <span id="socialTitle">ማህበራዊ</span></div>
             <div class="grid3" style="margin-top:6px;">
@@ -1164,8 +1287,6 @@ CATALOG_HTML = """
             </div>
             <div class="channel-link" style="margin-top:8px;">🌐 <a href="https://marshalom.com" target="_blank">marshalom.com</a> 🌐</div>
         </div>
-
-        <!-- SHARE -->
         <div class="page" id="page-share">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>👥 <span id="shareTitle">ማጋሪያ</span></div>
             <div style="border-radius:12px; overflow:hidden; margin-bottom:8px;">
@@ -1188,8 +1309,6 @@ CATALOG_HTML = """
                 <a id="shareTwitter" target="_blank" class="card-box" style="text-decoration:none; color:inherit;"><span style="font-size:18px; display:block;">🐦</span><span style="font-size:7px; color:#c0d8e8;">Twitter</span></a>
             </div>
         </div>
-
-        <!-- NEWS -->
         <div class="page" id="page-news">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>📰 <span id="newsTitle">ዜና</span></div>
             <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px 10px; margin-bottom:5px; border-left:3px solid #4a9eff;">
@@ -1213,20 +1332,14 @@ CATALOG_HTML = """
                 <div style="color:#c0d8e8; font-size:10px; margin-top:2px;">"ካሜራ ካለኝ ለምን ቁልፍ አስፈለገኝ?" ብሎ ቤቱን ሳይቆልፍ የወጣ ደንበኛ ታሪክ! 🔑😅</div>
             </div>
         </div>
-
-        <!-- COMPARE -->
         <div class="page" id="page-applications">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>📱 <span id="applicationsTitle">Applications</span></div>
             <div id="applicationsGrid" class="product-grid"><p class="empty-msg">⏳...</p></div>
         </div>
-
-        <!-- JOBS -->
         <div class="page" id="page-jobs">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>💼 <span id="jobsTitle">ክፍት ስራ</span></div>
             <div id="jobsList"><p class="empty-msg">⏳...</p></div>
         </div>
-
-        <!-- DISCOUNT -->
         <div class="page" id="page-discount">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>🎁 <span id="discountTitle">ቅናሽ</span></div>
             <div id="discountBox" style="background:linear-gradient(135deg,#4a3a1a,#3a2a0a); border-radius:16px; padding:20px 12px; text-align:center; color:#b8a84a; border:1px solid #4a3a1a;">
@@ -1234,8 +1347,6 @@ CATALOG_HTML = """
                 <div id="discountContent" style="font-size:13px; color:#c0d8e8; margin-top:6px;">⏳...</div>
             </div>
         </div>
-
-        <!-- AI -->
         <div class="page" id="page-ai">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>🤖 <span id="aiTitle">ረዳት</span></div>
             <div id="aiChatWindow" style="background:rgba(0,0,0,0.15); border-radius:12px; padding:8px; height:340px; overflow-y:auto; margin-bottom:8px; display:flex; flex-direction:column; gap:6px;"></div>
@@ -1244,8 +1355,6 @@ CATALOG_HTML = """
                 <button class="btn-primary" style="width:60px; margin:0;" onclick="sendAIMessage()">➤</button>
             </div>
         </div>
-
-        <!-- SUPPORT -->
         <div class="page" id="page-support">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>🛡️ <span id="supportTitle">ድጋፍ</span></div>
             <div style="text-align:center;">
@@ -1271,14 +1380,10 @@ CATALOG_HTML = """
                 <a href="tel:0931556590" style="text-decoration:none;"><button class="btn-primary" style="margin-top:6px;" id="supportBtn">📞 ወዲያው ይደውሉ</button></a>
             </div>
         </div>
-
-        <!-- PROMO -->
         <div class="page" id="page-promo">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>📢 <span id="promoTitle">ማስታወቂያ</span></div>
             <div id="promoList"><p class="empty-msg">⏳...</p></div>
         </div>
-
-        <!-- TIPS -->
         <div class="page" id="page-tips">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>💡 <span id="tipsTitle">ምክሮች</span></div>
             <div style="border-radius:12px; overflow:hidden; margin-bottom:8px;">
@@ -1297,40 +1402,29 @@ CATALOG_HTML = """
                 <div style="color:#c0d8e8; font-size:11px;">ካሜራዎ በ 4G/Wi-Fi ሲገናኝ የይለፍ ቃል ጠንካራ ያድርጉ!</div>
             </div>
         </div>
-
-        <!-- BANKS -->
         <div class="page" id="page-banks">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>🏦 <span id="banksTitle">ባንክ</span></div>
             <div id="banksList"><p class="empty-msg">⏳...</p></div>
         </div>
-
-        <!-- LOGIN -->
         <div class="page" id="page-feedback">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>💬 <span id="feedbackTitle">አስተያየት እና ምስክርነት</span></div>
-
             <div style="background:rgba(255,255,255,0.03); border-radius:12px; padding:10px; margin-bottom:10px;">
                 <div style="color:#b8a84a; font-size:12px; font-weight:600; margin-bottom:6px;">✍️ የእርስዎን አስተያየት ይላኩ (ለሁሉም ይታያል)</div>
                 <textarea id="testimonialInput" class="input-field" rows="2" placeholder="ስለ አገልግሎታችን ምን ይላሉ?"></textarea>
                 <button class="btn-primary" onclick="submitTestimonial()">📤 ላክ</button>
             </div>
-
             <div style="background:rgba(74,158,255,0.04); border-radius:12px; padding:10px; margin-bottom:10px; border:1px solid rgba(74,158,255,0.08);">
                 <div style="color:#4a9eff; font-size:12px; font-weight:600; margin-bottom:6px;">📩 ወደ አድሚን/ቲም ሊደር የግል መልእክት</div>
                 <textarea id="privateMessageInput" class="input-field" rows="2" placeholder="መልእክትዎን ይጻፉ..."></textarea>
                 <button class="btn-primary gold" onclick="submitPrivateMessage()">📤 ላክ (ወደ አድሚን)</button>
             </div>
-
             <div class="section-title">🌟 የደንበኞቻችን ምስክርነት</div>
             <div id="testimonialsList"><p class="empty-msg">⏳...</p></div>
         </div>
-
-        <!-- ADMIN -->
         <div class="page" id="page-admin">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>⚙️ <span id="adminTitle">አድሚን</span></div>
             <div id="adminContent"><p class="empty-msg">⏳ በማረጋገጥ ላይ...</p></div>
         </div>
-
-        <!-- TEAM LEADER -->
         <div class="page" id="page-teamleader">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>👔 <span id="tlTitle">ቲም ሊደር</span></div>
             <div id="tlLoginBox">
@@ -1341,8 +1435,6 @@ CATALOG_HTML = """
             </div>
             <div id="tlContent" style="display:none;"></div>
         </div>
-
-        <!-- EMPLOYEE -->
         <div class="page" id="page-employee">
             <div class="page-title"><button class="back-btn" onclick="showPage('page-home')">‹</button>👤 <span id="empTitle">ሰራተኛ</span></div>
             <div id="empLoginBox">
@@ -1353,9 +1445,7 @@ CATALOG_HTML = """
             </div>
             <div id="empContent" style="display:none;"></div>
         </div>
-
     </div>
-
     <div class="bottom-nav">
         <div class="nav-item active" onclick="showPage('page-home')"><span class="icon">🏠</span><span data-key="n1">መነሻ</span></div>
         <div class="nav-item" onclick="showPage('page-products')"><span class="icon">🛍️</span><span data-key="n2">ምርቶች</span></div>
@@ -1364,29 +1454,25 @@ CATALOG_HTML = """
         <div class="nav-item" onclick="showPage('page-jobs')"><span class="icon">💼</span><span data-key="n5">ስራ</span></div>
     </div>
 </div>
-
 <script>
 const tg = window.Telegram.WebApp;
 tg.ready(); tg.expand();
 const initData = tg.initData;
-const tgUser = (tg.initDataUnsafe && tg.initDataUnsafe.user) ? tg.initDataUnsafe.user : {};
-
 let currentLang = 'am';
 let allProducts = [];
 let teamLeaderCreds = null;
-
 const translations = {
     am: {
         title:'Shalom Technology', sub:'✨ የእርስዎ የደህንነት አጋር ✨',
-        m1:'ምርቶች',m2:'ይደውሉ',m3:'ማህበራዊ',m4:'ማጋሪያ',m5:'ዜና',m6:'ንጽጽር',m7:'ክፍት ስራ',m8:'ቅናሽ',
-        m9:'ረዳት',m10:'ድጋፍ',m11:'ማስታወቂያ',m12:'ምክሮች',m13:'ባንክ',m14:'መግቢያ',m15:'አድሚን',m16:'ቲም ሊደር',m17:'ሰራተኛ',
+        m1:'ምርቶች',m2:'ይደውሉ',m3:'ማህበራዊ',m4:'ማጋሪያ',m5:'ዜና',m6:'Applications',m7:'ክፍት ስራ',m8:'ቅናሽ',
+        m9:'ረዳት',m10:'ድጋፍ',m11:'ማስታወቂያ',m12:'ምክሮች',m13:'ባንክ',m14:'አስተያየት',m15:'አድሚን',m16:'ቲም ሊደር',m17:'ሰራተኛ',
         n1:'መነሻ',n2:'ምርቶች',n3:'ረዳት',n4:'አጋራ',n5:'ስራ',
         pTitle:'🛍️ ምርቶች', channelText:'ተጨማሪ ምርቶች ለማየት ቻናላችንን ይቀላቀሉ',
         callTitle:'ይደውሉ', callLabel1:'ኢትዮ ቴሌኮም', callLabel2:'ሳፋሪኮም',
         socialTitle:'ማህበራዊ', shareTitle:'ማጋሪያ',
         shareWelcomeTitle:'✨ እንኳን ደህና መጡ ወደ Shalom Technology! ✨', shareWelcomeText:'ይህንን ቦት ለጓደኞችዎ ያጋሩ!',
         shareBtn:'📤 ቻናላችንን ያጋሩ (Telegram ይምረጡ)',
-        newsTitle:'ዜና', compareTitle:'ንጽጽር',
+        newsTitle:'ዜና', compareTitle:'Applications',
         jobsTitle:'ክፍት ስራ', jobsApply:'📝 አሁን አመልክት', jobsEmpty:'ለጊዜው ክፍት የስራ ቦታ የለም',
         discountTitle:'ቅናሽ', aiTitle:'ረዳት', supportTitle:'ድጋፍ', supportSub:'24/7 ደንበኛ ድጋፍ',
         promoTitle:'ማስታወቂያ', promoEmpty:'ለጊዜው ማስታወቂያ የለም',
@@ -1400,15 +1486,15 @@ const translations = {
     },
     en: {
         title:'Shalom Technology', sub:'✨ Your Security Partner ✨',
-        m1:'Products',m2:'Call',m3:'Social',m4:'Share',m5:'News',m6:'Compare',m7:'Jobs',m8:'Discount',
-        m9:'Assistant',m10:'Support',m11:'Promo',m12:'Tips',m13:'Banks',m14:'Login',m15:'Admin',m16:'Team Leader',m17:'Employee',
+        m1:'Products',m2:'Call',m3:'Social',m4:'Share',m5:'News',m6:'Applications',m7:'Jobs',m8:'Discount',
+        m9:'Assistant',m10:'Support',m11:'Promo',m12:'Tips',m13:'Banks',m14:'Feedback',m15:'Admin',m16:'Team Leader',m17:'Employee',
         n1:'Home',n2:'Products',n3:'Assistant',n4:'Share',n5:'Jobs',
         pTitle:'🛍️ Products', channelText:'Join our channel for more products',
         callTitle:'Call', callLabel1:'Ethio Telecom', callLabel2:'Safaricom',
         socialTitle:'Social', shareTitle:'Share',
         shareWelcomeTitle:'✨ Welcome to Shalom Technology! ✨', shareWelcomeText:'Share this bot with your friends!',
         shareBtn:'📤 Share our channel (choose Telegram)',
-        newsTitle:'News', compareTitle:'Compare',
+        newsTitle:'News', compareTitle:'Applications',
         jobsTitle:'Jobs', jobsApply:'📝 Apply Now', jobsEmpty:'No open positions right now',
         discountTitle:'Discount', aiTitle:'Assistant', supportTitle:'Support', supportSub:'24/7 Customer Support',
         promoTitle:'Promo', promoEmpty:'No promotions right now',
@@ -1422,15 +1508,15 @@ const translations = {
     },
     ti: {
         title:'Shalom Technology', sub:'✨ ናይ ሓልዎት ኣጋርኩም ✨',
-        m1:'ምርቶች',m2:'ደውሉ',m3:'ማህበራዊ',m4:'ኣጋሩ',m5:'ዜና',m6:'ንጽጽር',m7:'ስራ',m8:'ቅናሽ',
-        m9:'ረዳት',m10:'ድጋፍ',m11:'ማስታወቂያ',m12:'ምኽርታት',m13:'ባንክ',m14:'ምእታው',m15:'ኣድሚን',m16:'መራሒ ጉጅለ',m17:'ሰራተኛ',
+        m1:'ምርቶች',m2:'ደውሉ',m3:'ማህበራዊ',m4:'ኣጋሩ',m5:'ዜና',m6:'መተግበሪያታት',m7:'ስራ',m8:'ቅናሽ',
+        m9:'ረዳት',m10:'ድጋፍ',m11:'ማስታወቂያ',m12:'ምኽርታት',m13:'ባንክ',m14:'ኣስተያየት',m15:'ኣድሚን',m16:'መራሒ ጉጅለ',m17:'ሰራተኛ',
         n1:'መነሻ',n2:'ምርቶች',n3:'ረዳት',n4:'ኣጋሩ',n5:'ስራ',
         pTitle:'🛍️ ምርቶች', channelText:'ካልኦት ምርትታት ንምርኣይ ቻናልና ተጸንበሩ',
         callTitle:'ደውሉ', callLabel1:'ኢትዮ ተለኮም', callLabel2:'ሳፋሪኮም',
         socialTitle:'ማህበራዊ', shareTitle:'ኣጋሩ',
         shareWelcomeTitle:'✨ ናብ Shalom Technology ብደሓን መጻእኩም! ✨', shareWelcomeText:'ነዚ ቦት ንመሓዙትኩም ኣጋሩ!',
         shareBtn:'📤 ቻናልና ኣጋሩ',
-        newsTitle:'ዜና', compareTitle:'ንጽጽር',
+        newsTitle:'ዜና', compareTitle:'መተግበሪያታት',
         jobsTitle:'ክፍቲ ስራሕ', jobsApply:'📝 ሕጂ ኣመልክቱ', jobsEmpty:'ሕጂ ክፍቲ ቦታ የለን',
         discountTitle:'ቅናሽ', aiTitle:'ረዳት', supportTitle:'ደገፍ', supportSub:'24/7 ደገፍ ዓሚል',
         promoTitle:'ማስታወቂያ', promoEmpty:'ሕጂ ማስታወቂያ የለን',
@@ -1444,15 +1530,15 @@ const translations = {
     },
     or: {
         title:'Shalom Technology', sub:'✨ Michuu Nageenya Keessanii ✨',
-        m1:'Oomishaalee',m2:'Bilbilaa',m3:'Hawaasa',m4:'Qooda',m5:'Oduu',m6:'Madaalii',m7:'Hojii',m8:'Hir\u2019aa',
-        m9:'Gargaaraa',m10:'Deggersa',m11:'Beeksisa',m12:'Gorsa',m13:'Baankii',m14:'Seensa',m15:'Admin',m16:'Hoogganaa',m17:'Hojjetaa',
+        m1:'Oomishaalee',m2:'Bilbilaa',m3:'Hawaasa',m4:'Qooda',m5:'Oduu',m6:'Applikashinii',m7:'Hojii',m8:'Hir\u2019aa',
+        m9:'Gargaaraa',m10:'Deggersa',m11:'Beeksisa',m12:'Gorsa',m13:'Baankii',m14:'Yaada',m15:'Admin',m16:'Hoogganaa',m17:'Hojjetaa',
         n1:'Mana',n2:'Oomishaalee',n3:'Gargaaraa',n4:'Qooda',n5:'Hojii',
         pTitle:'🛍️ Oomishaalee', channelText:'Oomisha dabalataaf channel keenya hordofaa',
         callTitle:'Bilbilaa', callLabel1:'Ethio Telecom', callLabel2:'Safaricom',
         socialTitle:'Hawaasa', shareTitle:'Qooda',
         shareWelcomeTitle:'✨ Baga Nagaan Dhuftan Shalom Technology! ✨', shareWelcomeText:'Bot kana hiriyoota keessaniif qoodaa!',
         shareBtn:'📤 Channel keenya qoodaa',
-        newsTitle:'Oduu', compareTitle:'Madaalii',
+        newsTitle:'Oduu', compareTitle:'Applikashinii',
         jobsTitle:'Hojii Banaa', jobsApply:'📝 Amma Iyyadhu', jobsEmpty:'Yeroo ammaa hojiin banaan hin jiru',
         discountTitle:'Hir\u2019aa', aiTitle:'Gargaaraa', supportTitle:'Deggersa', supportSub:'Deggersa Maamilaa 24/7',
         promoTitle:'Beeksisa', promoEmpty:'Yeroo ammaa beeksisni hin jiru',
@@ -1465,7 +1551,6 @@ const translations = {
         setPwBtn:'✅ Password Jijjiiri', pwChanged:'✅ Jijjiirameera!'
     }
 };
-
 function switchLanguage(lang) {
     currentLang = lang;
     const t = translations[lang];
@@ -1506,12 +1591,10 @@ function switchLanguage(lang) {
     renderPromos();
     renderJobs();
 }
-
 function toggleHomeMenu() {
     const grid = document.getElementById('homeMenuGrid');
     grid.style.display = grid.style.display === 'none' ? 'block' : 'none';
 }
-
 function showPage(pageId) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     const target = document.getElementById(pageId);
@@ -1524,8 +1607,6 @@ function showPage(pageId) {
     else if (pageId === 'page-jobs') document.querySelector('.nav-item:nth-child(5)').classList.add('active');
     if (pageId === 'page-admin') loadAdminPage();
 }
-
-// ===== PRODUCTS =====
 async function loadProducts() {
     const res = await fetch('/api/products');
     allProducts = await res.json();
@@ -1553,20 +1634,6 @@ function openFullscreen(photoUrl, name) {
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
     document.body.appendChild(overlay);
 }
-// Rotate product display order every 8 hours (client-side, while catalog stays open across sessions)
-function maybeRotateProducts() {
-    const lastRotate = parseInt(localStorage_fallback('lastProductRotate') || '0');
-    const now = Date.now();
-    if (now - lastRotate > 8 * 60 * 60 * 1000 && allProducts.length > 1) {
-        allProducts.push(allProducts.shift());
-        renderProducts();
-    }
-}
-let _memoryStore = {};
-function localStorage_fallback(key, value) {
-    if (value !== undefined) { _memoryStore[key] = value; return; }
-    return _memoryStore[key];
-}
 async function askPrice(productId, productName) {
     const t = translations[currentLang];
     await fetch('/api/ask_price', {
@@ -1575,8 +1642,6 @@ async function askPrice(productId, productName) {
     });
     alert(t.askSent);
 }
-
-// ===== JOBS =====
 async function loadJobs() {
     const res = await fetch('/api/jobs');
     window._jobs = await res.json();
@@ -1592,6 +1657,7 @@ function renderJobs() {
             <h3 style="color:#fff; font-size:12px;">${j.title}</h3>
             <p style="color:#9bb0c0; font-size:10px;">${j.location || ''}</p>
             <p style="color:#c0d8e8; font-size:10px; margin-top:4px;">${j.description || ''}</p>
+            ${j.pdf_url ? `<a href="${j.pdf_url}" target="_blank" style="color:#4a9eff; font-size:11px;">📄 PDF ውረድ</a>` : ''}
             <input type="text" id="phone-${j.id}" placeholder="${t.phonePlaceholder}" class="input-field" style="margin-top:6px;">
             <input type="email" id="email-${j.id}" placeholder="Gmail / Email" class="input-field">
             <input type="text" id="idnum-${j.id}" placeholder="የመታወቂያ ቁጥር (ID Number)" class="input-field">
@@ -1617,8 +1683,6 @@ async function applyJob(jobId, jobTitle) {
     });
     alert(t.applySent);
 }
-
-// ===== PROMOS =====
 async function loadPromos() {
     const res = await fetch('/api/promos');
     window._promos = await res.json();
@@ -1649,8 +1713,6 @@ function renderDiscount() {
         el.textContent = currentLang === 'en' ? 'No active discount right now' : 'ለጊዜው ንቁ ቅናሽ የለም';
     }
 }
-
-// ===== BANKS =====
 const DEFAULT_BANKS = [
     {bank: 'የንግድ ባንክ', number: '1000453578058', owner: 'Marshalom Tesfay'},
     {bank: 'ቴሌብር 1', number: '0931556590', owner: 'Marshalom Tesfay'},
@@ -1685,7 +1747,6 @@ function copyBankNumber(number, btn) {
         btn.textContent = '✅ ተኮፒዷል!';
         setTimeout(() => { btn.textContent = original; }, 1500);
     }).catch(() => {
-        // Fallback for older webviews without clipboard API
         const ta = document.createElement('textarea');
         ta.value = number;
         document.body.appendChild(ta);
@@ -1696,8 +1757,6 @@ function copyBankNumber(number, btn) {
         setTimeout(() => { btn.textContent = '📋 ኮፒ'; }, 1500);
     });
 }
-
-// ===== APPLICATIONS (Portfolio) =====
 async function loadApplications() {
     const res = await fetch('/api/portfolio');
     const apps = await res.json();
@@ -1713,8 +1772,6 @@ async function loadApplications() {
         </div>
     `).join('');
 }
-
-// ===== FEEDBACK / TESTIMONIALS / INBOX =====
 async function loadTestimonials() {
     const res = await fetch('/api/testimonials');
     const items = await res.json();
@@ -1748,8 +1805,6 @@ async function submitPrivateMessage() {
     document.getElementById('privateMessageInput').value = '';
     alert('✅ መልእክትዎ ተልኳል!');
 }
-
-// ===== SHARE =====
 function shareChannel() {
     const channelUrl = 'https://t.me/MarshalomTech';
     tg.openTelegramLink('https://t.me/share/url?url=' + encodeURIComponent(channelUrl) + '&text=' + encodeURIComponent('Shalom Technology - CCTV and Electronics'));
@@ -1758,8 +1813,6 @@ document.getElementById('shareWhatsapp') && (document.getElementById('shareWhats
 document.getElementById('shareFacebook') && (document.getElementById('shareFacebook').href = 'https://www.facebook.com/sharer/sharer.php?u=' + encodeURIComponent('https://t.me/MarshalomTech'));
 document.getElementById('shareTelegram') && (document.getElementById('shareTelegram').href = 'https://t.me/share/url?url=' + encodeURIComponent('https://t.me/MarshalomTech'));
 document.getElementById('shareTwitter') && (document.getElementById('shareTwitter').href = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent('Check out Shalom Technology: https://t.me/MarshalomTech'));
-
-// ===== AI CHAT (in-app, not redirecting to Telegram) =====
 function addChatBubble(text, isUser) {
     const win = document.getElementById('aiChatWindow');
     const bubble = document.createElement('div');
@@ -1784,8 +1837,6 @@ async function sendAIMessage() {
     win.removeChild(win.lastChild);
     addChatBubble(data.reply || 'Error', false);
 }
-
-// ===== LOGIN (routes to team leader or employee page based on role) =====
 async function doLogin() {
     const t = translations[currentLang];
     const username = document.getElementById('loginUsername').value;
@@ -1808,8 +1859,6 @@ async function doLogin() {
         renderEmployeePanel(data.profile, username, password);
     }
 }
-
-// ===== EMPLOYEE direct login (from Employee menu page) =====
 async function employeeLogin() {
     const t = translations[currentLang];
     const username = document.getElementById('empUsername').value;
@@ -1826,13 +1875,11 @@ async function employeeLogin() {
     }
     renderEmployeePanel(data.profile, username, password);
 }
-
 function renderEmployeePanel(profile, username, password) {
     const t = translations[currentLang];
     document.getElementById('empLoginBox').style.display = 'none';
     const el = document.getElementById('empContent');
     el.style.display = 'block';
-
     if (profile.must_change_password) {
         el.innerHTML = `
             <div style="background:rgba(255,255,255,0.03); border-radius:14px; padding:14px; text-align:center;">
@@ -1845,7 +1892,6 @@ function renderEmployeePanel(profile, username, password) {
         `;
         return;
     }
-
     el.innerHTML = `
         <div style="background:rgba(255,255,255,0.04); border-radius:14px; padding:14px;">
             <div style="text-align:center; font-size:32px;">👤</div>
@@ -1856,11 +1902,11 @@ function renderEmployeePanel(profile, username, password) {
                 <b>🎁 ቦነስ:</b><br>${(profile.bonus || 'የለም').replace(/\\n/g,'<br>')}<br>
                 <b>⚠️ ማስጠንቀቂያ:</b><br>${(profile.warnings || 'የለም').replace(/\\n/g,'<br>')}<br>
                 <b>📋 ስራዎች:</b><br>${(profile.tasks || 'የለም').replace(/\\n/g,'<br>')}
+                ${profile.photo_url ? `<br><b>📸 ፎቶ:</b><br><img src="${profile.photo_url}" style="width:80px; height:80px; border-radius:50%; object-fit:cover; margin-top:4px;" />` : ''}
             </div>
         </div>
     `;
 }
-
 async function changeEmpPassword(username, oldPassword) {
     const newPassword = document.getElementById('newPwInput').value;
     if (!newPassword) return;
@@ -1882,8 +1928,6 @@ async function employeeLoginRetry(username, password) {
     const data = await res.json();
     if (data.ok) renderEmployeePanel(data.profile, username, password);
 }
-
-// ===== TEAM LEADER =====
 async function teamLeaderLogin() {
     const t = translations[currentLang];
     const username = document.getElementById('tlUsername').value;
@@ -1900,19 +1944,16 @@ async function teamLeaderLogin() {
     teamLeaderCreds = {tl_username: username, tl_password: password};
     renderTeamLeaderPanel(data.profile, username, password);
 }
-
 async function renderTeamLeaderPanel(profile) {
     document.getElementById('tlLoginBox').style.display = 'none';
     const el = document.getElementById('tlContent');
     el.style.display = 'block';
     el.innerHTML = `<p class="empty-msg">⏳...</p>`;
-
     const res = await fetch('/api/team/employees', {
         method: 'POST', headers: {'Content-Type':'application/json'},
         body: JSON.stringify(teamLeaderCreds)
     });
     const employees = await res.json();
-
     el.innerHTML = `
         <div style="text-align:center; margin-bottom:10px;">
             <div style="font-size:28px;">👔</div>
@@ -1925,6 +1966,7 @@ async function renderTeamLeaderPanel(profile) {
     listEl.innerHTML = (employees || []).map(e => `
         <div style="background:rgba(255,255,255,0.03); border-radius:10px; padding:8px; margin-bottom:6px;">
             <b style="color:#fff; font-size:12px;">${e.full_name}</b> <span style="color:#8aa3b5; font-size:10px;">(${e.position})</span>
+            ${e.photo_url ? `<img src="${e.photo_url}" style="width:30px; height:30px; border-radius:50%; object-fit:cover; vertical-align:middle; margin-right:6px;" />` : ''}
             <div style="display:flex; gap:4px; margin-top:6px;">
                 <button style="flex:1; font-size:9px; padding:5px; border:none; border-radius:6px; background:#2b3a4a; color:#fff;" onclick="tlResetPassword('${e.username}')">🔐 Reset</button>
                 <button style="flex:1; font-size:9px; padding:5px; border:none; border-radius:6px; background:#2b3a4a; color:#fff;" onclick="tlAssignTask('${e.username}')">📋 Task</button>
@@ -1933,7 +1975,6 @@ async function renderTeamLeaderPanel(profile) {
         </div>
     `).join('') || '<p class="empty-msg">ምንም ሰራተኛ የለም</p>';
 }
-
 async function tlResetPassword(username) {
     const res = await fetch('/api/team/reset_password', {
         method: 'POST', headers: {'Content-Type':'application/json'},
@@ -1960,8 +2001,6 @@ async function tlGiveBonus(username) {
     });
     alert('✅ Bonus added!');
 }
-
-// ===== ADMIN (auto-detected via Telegram identity, no manual login) =====
 async function loadAdminPage() {
     const el = document.getElementById('adminContent');
     const verifyRes = await fetch('/api/admin/verify', {
@@ -1987,7 +2026,6 @@ async function loadAdminPage() {
     const jobs = await jobsRes.json();
     const applications = await appsRes.json();
     const banks = await banksRes.json();
-
     el.innerHTML = `
         <div class="grid2" style="margin-bottom:10px;">
             <div class="stat-box"><div class="stat-num">${stats.customers}</div><div class="stat-label">👥 ደንበኞች</div></div>
@@ -2032,7 +2070,6 @@ async function loadAdminPage() {
                 </div>
             `).join('')}
         </div>
-
         <div class="section-title" style="margin-top:14px;">📋 የስራ ማመልከቻዎች</div>
         <div>
             ${applications.filter(a => a.status === 'pending').map(a => `
@@ -2046,14 +2083,12 @@ async function loadAdminPage() {
                 </div>
             `).join('') || '<p class="empty-msg">ምንም አዲስ ማመልከቻ የለም</p>'}
         </div>
-
         <div class="section-title" style="margin-top:14px;">🏦 የባንክ ሂሳብ አስተዳደር</div>
         <textarea id="banksConfigText" class="input-field" rows="6" style="font-size:10px;">${JSON.stringify(banks && banks.length ? banks : DEFAULT_BANKS, null, 2)}</textarea>
         <button class="btn-primary gold" onclick="adminSaveBanks()">💾 ባንክ መረጃ አስቀምጥ</button>
         <div style="font-size:9px; color:#8aa3b5; margin:4px 0;">📷 QR ኮድ ፎቶ:</div>
         <input type="file" id="bankQrFile" accept="image/*" class="input-field" style="padding:6px;">
         <button class="btn-primary gold" onclick="adminSaveBankQr()">💾 QR አስቀምጥ</button>
-
         <div class="section-title" style="margin-top:14px;">🔐 አድሚን / ቲም ሊደር ፍጠር</div>
         <input type="text" id="newCredName" placeholder="ሙሉ ስም" class="input-field">
         <input type="text" id="newCredPosition" placeholder="ስራ/ደረጃ" class="input-field">
@@ -2065,7 +2100,6 @@ async function loadAdminPage() {
         <div id="credResult" style="font-size:11px; margin-top:6px; color:#4aff8a;"></div>
     `;
 }
-
 async function adminApproveApp(id) {
     await fetch(`/api/admin/applications/${id}/approve`, {method:'POST', headers:{'X-Init-Data': initData}});
     loadAdminPage();
@@ -2110,7 +2144,6 @@ async function adminGenerateCredentials() {
         document.getElementById('credResult').innerHTML = `✅ Username: <b>${data.username}</b><br>✅ Password: <b>${data.password}</b>`;
     }
 }
-
 async function adminAddProduct() {
     const name = document.getElementById('newProdName').value;
     const category = document.getElementById('newProdCat').value;
@@ -2118,7 +2151,6 @@ async function adminAddProduct() {
     const linkUrl = document.getElementById('newProdLink').value;
     const fileInput = document.getElementById('newProdFile');
     if (!name || !category) { alert('ስም እና ምድብ ያስፈልጋል'); return; }
-
     let photo_url = linkUrl;
     if (fileInput.files && fileInput.files[0]) {
         photo_url = await fileToBase64(fileInput.files[0]);
@@ -2160,15 +2192,12 @@ async function adminDeleteJob(id) {
     loadAdminPage();
     loadJobs();
 }
-
-// ===== INIT =====
 loadProducts();
 loadJobs();
 loadPromos();
 loadBanks();
 loadApplications();
 loadTestimonials();
-setInterval(maybeRotateProducts, 60000);
 if (window.location.hash) {
     const targetPage = window.location.hash.replace('#', '');
     if (document.getElementById(targetPage)) showPage(targetPage);
@@ -2176,13 +2205,13 @@ if (window.location.hash) {
 </script>
 </body>
 </html>
-
 """
 
 @app.route('/webapp')
 def webapp_catalog():
     return render_template_string(CATALOG_HTML)
 
+# ===== API Routes =====
 @app.route('/api/products')
 def api_products():
     category = request.args.get('category')
@@ -2210,7 +2239,6 @@ def api_jobs_apply():
     username = user.get('username', '') if user else ''
     user_id = user.get('id') if user else None
     app_id = add_job_application(job_id, job_title, user_id, name, username, phone, email, id_number, selfie_photo)
-
     caption = f"💼 አዲስ የስራ ማመልከቻ! (ID: {app_id})\nስራ: {job_title}\nስም: {name} (@{username or 'የለም'})\nስልክ: {phone}\nኢሜይል: {email or 'የለም'}\nመታወቂያ ቁ.: {id_number or 'የለም'}\nመታወቂያ: tg://user?id={user_id}"
     if selfie_photo:
         caption += "\n📸 ሰልፊ ተያይዟል"
@@ -2244,7 +2272,6 @@ AI_BUSY_MESSAGE = """🌟 ማርሻሎም (Marshalom) የቴክኖሎጂ ረዳ�
 አሁን ላይ እጅግ በጣም ብዙ ጥያቄዎችን በማስተናገድ ላይ ስለሆንን፣ ትክክለኛ ምላሽ ለእርስዎ ለመስጠት የ Shalom Technology ፍቃድ በመጠበቅ ላይ እገኛለሁ። ⏳
 አትጨነቁ! መልእክትዎ በአስተማማኝ ሁኔታ ተይዟል። 🤝✨
 ⚠️ ጉዳይዎ አስቸኳይ ከሆነ፣ ይህን ቅጽ በመከተል ይላኩልን፦
-
 አስቸኳይ ብለው ይጻፉ።
 የችግሩን ወይም የጥያቄዎን ዝርዝር በአጭሩ ይግለጹ።
 (ምሳሌ፦ አስቸኳይ፣ ካሜራዬ አይሰራም ወይም ሌላ... ) 🚨
@@ -2257,13 +2284,11 @@ def api_ai_chat():
     user_message = body.get('message', '').strip()
     if not user_message:
         return jsonify({"ok": False, "error": "empty message"}), 400
-
     name = (user.get('first_name', '') if user else '') or 'ደንበኛ'
     username = user.get('username', '') if user else ''
     user_id = user.get('id') if user else None
     if user_id:
         upsert_customer(user_id, name, username)
-
     ai_reply = ask_deepseek(user_message)
     if ai_reply:
         summary_prompt = f"Summarize this customer conversation in ONE short Amharic sentence for the business owner. Customer said: \"{user_message}\" | AI replied: \"{ai_reply}\""
@@ -2280,7 +2305,6 @@ def api_ai_chat():
         })
         return jsonify({"ok": True, "reply": AI_BUSY_MESSAGE})
 
-# ===== ሁሉንም ገጾች ራስ-ገዝ ማዋቀሪያ =====
 @app.route('/api/config/<key>')
 def api_get_config(key):
     return jsonify(get_config(key, []))
@@ -2293,7 +2317,6 @@ def api_set_config(key):
     set_config(key, body.get('value'))
     return jsonify({"ok": True})
 
-# ===== የስራ ማመልከቻ አስተዳደር =====
 @app.route('/api/admin/applications')
 def api_admin_applications():
     if not require_admin():
@@ -2319,7 +2342,6 @@ def api_admin_reject_application(app_id):
     set_application_status(app_id, 'rejected')
     return jsonify({"ok": True})
 
-# ===== Admin/Team Leader password generation =====
 @app.route('/api/admin/generate_credentials', methods=['POST'])
 def api_admin_generate_credentials():
     if not require_admin():
@@ -2336,7 +2358,6 @@ def api_admin_generate_credentials():
     emp = get_employee_by_username(username)
     return jsonify({"ok": True, "username": username, "password": temp_password, "internal_email": emp.get('internal_email') if emp else None})
 
-# ===== የህዝብ ምስክርነት =====
 @app.route('/api/testimonials')
 def api_testimonials():
     return jsonify(get_testimonials())
@@ -2353,7 +2374,6 @@ def api_testimonials_add():
     add_testimonial(name, username, message)
     return jsonify({"ok": True})
 
-# ===== የውስጥ መልእክት ሳጥን =====
 @app.route('/api/message/send', methods=['POST'])
 def api_message_send():
     body = request.get_json(silent=True) or {}
@@ -2390,7 +2410,6 @@ def api_message_inbox():
         return jsonify(get_inbox(recipient_type='team_leader', recipient_username=tl_username))
     return jsonify({"error": "forbidden"}), 403
 
-# ===== Applications ካታሎግ =====
 @app.route('/api/portfolio')
 def api_portfolio():
     return jsonify(get_portfolio_apps())
@@ -2468,7 +2487,336 @@ def api_team_reset_password():
         })
     return jsonify({"ok": True, "temp_password": temp_pw})
 
-# ===== ⚙️ Admin Dashboard Mini App =====
+# ===== አዲስ ኤፒአይ መንገዶች (ከክፍል 1፣ 2 እና 3) =====
+
+# ቅንብሮች
+@app.route('/api/admin/settings', methods=['GET', 'POST'])
+def api_admin_settings():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    if request.method == 'POST':
+        body = request.get_json(silent=True) or {}
+        for key, value in body.items():
+            set_config(f'setting_{key}', value)
+        return jsonify({"ok": True})
+    settings = {
+        'language': get_config('setting_language', 'am'),
+        'primary_color': get_config('setting_primary_color', '#4a9eff'),
+        'bg_color': get_config('setting_bg_color', '#0b1219'),
+        'card_bg': get_config('setting_card_bg', '#17212b'),
+        'font_family': get_config('setting_font_family', 'Segoe UI'),
+        'border_radius': get_config('setting_border_radius', '16'),
+        'logo': get_config('setting_logo', '📱'),
+        'company_name': get_config('setting_company_name', 'Shalom Technology'),
+        'tagline': get_config('setting_tagline', '✨ የእርስዎ የደህንነት አጋር ✨')
+    }
+    return jsonify(settings)
+
+# ገጾች
+@app.route('/api/admin/pages', methods=['GET', 'POST', 'DELETE'])
+def api_admin_pages():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    if request.method == 'GET':
+        return jsonify(get_config('custom_pages', []))
+    if request.method == 'POST':
+        body = request.get_json(silent=True) or {}
+        pages = get_config('custom_pages', [])
+        page = {'id': len(pages) + 1, 'name': body.get('name', 'አዲስ ገጽ'), 'content': body.get('content', ''), 'icon': body.get('icon', '📄'), 'visible': body.get('visible', True)}
+        pages.append(page)
+        set_config('custom_pages', pages)
+        return jsonify({"ok": True, "page": page})
+    if request.method == 'DELETE':
+        page_id = request.args.get('id')
+        if page_id:
+            pages = get_config('custom_pages', [])
+            pages = [p for p in pages if p.get('id') != int(page_id)]
+            set_config('custom_pages', pages)
+            return jsonify({"ok": True})
+        return jsonify({"error": "id required"}), 400
+
+# አዝራሮች
+@app.route('/api/admin/buttons', methods=['GET', 'POST', 'DELETE'])
+def api_admin_buttons():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    if request.method == 'GET':
+        return jsonify(get_config('custom_buttons', []))
+    if request.method == 'POST':
+        body = request.get_json(silent=True) or {}
+        buttons = get_config('custom_buttons', [])
+        button = {'id': len(buttons) + 1, 'label': body.get('label', 'አዝራር'), 'color': body.get('color', '#4a9eff'), 'size': body.get('size', 'medium'), 'action': body.get('action', ''), 'icon': body.get('icon', '🔘')}
+        buttons.append(button)
+        set_config('custom_buttons', buttons)
+        return jsonify({"ok": True, "button": button})
+    if request.method == 'DELETE':
+        button_id = request.args.get('id')
+        if button_id:
+            buttons = get_config('custom_buttons', [])
+            buttons = [b for b in buttons if b.get('id') != int(button_id)]
+            set_config('custom_buttons', buttons)
+            return jsonify({"ok": True})
+        return jsonify({"error": "id required"}), 400
+
+# አዶዎች
+@app.route('/api/admin/icons', methods=['GET', 'POST', 'DELETE'])
+def api_admin_icons():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    if request.method == 'GET':
+        return jsonify(get_config('custom_icons', []))
+    if request.method == 'POST':
+        body = request.get_json(silent=True) or {}
+        icons = get_config('custom_icons', [])
+        icon = {'id': len(icons) + 1, 'emoji': body.get('emoji', '😊'), 'label': body.get('label', 'አዶ'), 'page': body.get('page', '')}
+        icons.append(icon)
+        set_config('custom_icons', icons)
+        return jsonify({"ok": True, "icon": icon})
+    if request.method == 'DELETE':
+        icon_id = request.args.get('id')
+        if icon_id:
+            icons = get_config('custom_icons', [])
+            icons = [i for i in icons if i.get('id') != int(icon_id)]
+            set_config('custom_icons', icons)
+            return jsonify({"ok": True})
+        return jsonify({"error": "id required"}), 400
+
+# PDF መጫን
+@app.route('/api/admin/jobs/<int:job_id>/pdf', methods=['POST'])
+def api_admin_upload_job_pdf(job_id):
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    if 'file' not in request.files:
+        return jsonify({"error": "no file"}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "empty filename"}), 400
+    if not allowed_file(file.filename):
+        return jsonify({"error": "only PDF allowed"}), 400
+    filename = secure_filename(f"job_{job_id}_{file.filename}")
+    filepath = os.path.join(UPLOAD_FOLDER, filename)
+    file.save(filepath)
+    pdf_url = f"{BASE_URL}/uploads/{filename}"
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("UPDATE jobs SET pdf_url=%s WHERE id=%s", (pdf_url, job_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({"ok": True, "pdf_url": pdf_url})
+
+@app.route('/uploads/<filename>')
+def serve_pdf(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename)
+
+# የሰራተኛ ፎቶ
+@app.route('/api/admin/employees/<int:emp_id>/photo', methods=['POST'])
+def api_admin_upload_employee_photo(emp_id):
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    if 'file' not in request.files:
+        return jsonify({"error": "no file"}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "empty filename"}), 400
+    photo_data = base64.b64encode(file.read()).decode('utf-8')
+    photo_url = f"data:image/jpeg;base64,{photo_data}"
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("UPDATE employees SET photo_url=%s WHERE id=%s", (photo_url, emp_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({"ok": True, "photo_url": photo_url})
+
+# ዲዛይን
+@app.route('/api/admin/design', methods=['GET', 'POST'])
+def api_admin_design():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    if request.method == 'POST':
+        body = request.get_json(silent=True) or {}
+        for key, value in body.items():
+            set_config(f'design_{key}', value)
+        return jsonify({"ok": True})
+    design = {
+        'primary_color': get_config('design_primary_color', '#4a9eff'),
+        'secondary_color': get_config('design_secondary_color', '#2a7adf'),
+        'bg_color': get_config('design_bg_color', '#0b1219'),
+        'card_bg': get_config('design_card_bg', '#17212b'),
+        'text_color': get_config('design_text_color', '#e0edf5'),
+        'header_color': get_config('design_header_color', '#1a2a3a'),
+        'footer_color': get_config('design_footer_color', '#0f1a24'),
+        'font_family': get_config('design_font_family', 'Segoe UI'),
+        'border_radius': get_config('design_border_radius', '16'),
+        'logo': get_config('design_logo', '📱'),
+        'logo_url': get_config('design_logo_url', ''),
+        'company_name': get_config('design_company_name', 'Shalom Technology'),
+        'tagline': get_config('design_tagline', '✨ የእርስዎ የደህንነት አጋር ✨'),
+        'footer_text': get_config('design_footer_text', '© 2026 Shalom Technology. ሁሉም መብቶች የተጠበቁ ናቸው።')
+    }
+    return jsonify(design)
+
+# ሎጎ መጫን
+@app.route('/api/admin/logo', methods=['POST'])
+def api_admin_upload_logo():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    if 'file' not in request.files:
+        return jsonify({"error": "no file"}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "empty filename"}), 400
+    photo_data = base64.b64encode(file.read()).decode('utf-8')
+    mime_type = file.content_type or 'image/png'
+    logo_url = f"data:{mime_type};base64,{photo_data}"
+    set_config('design_logo_url', logo_url)
+    return jsonify({"ok": True, "logo_url": logo_url})
+
+# QR ኮድ
+@app.route('/api/admin/qr', methods=['POST'])
+def api_admin_generate_qr():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    body = request.get_json(silent=True) or {}
+    data = body.get('data', '')
+    if not data:
+        return jsonify({"error": "data required"}), 400
+    try:
+        import qrcode
+        import io
+        qr = qrcode.QRCode(version=1, box_size=10, border=5)
+        qr.add_data(data)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        buffered = io.BytesIO()
+        img.save(buffered, format="PNG")
+        img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+        set_config('qr_code', f"data:image/png;base64,{img_base64}")
+        return jsonify({"ok": True, "qr": f"data:image/png;base64,{img_base64}"})
+    except ImportError:
+        return jsonify({"error": "qrcode not installed"}), 500
+
+# የንግድ አመክንዮ - ህጎች
+@app.route('/api/admin/rules', methods=['GET', 'POST', 'DELETE'])
+def api_admin_rules():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    if request.method == 'GET':
+        return jsonify(get_config('business_rules', []))
+    if request.method == 'POST':
+        body = request.get_json(silent=True) or {}
+        rules = get_config('business_rules', [])
+        rule = {'id': len(rules) + 1, 'name': body.get('name', 'አዲስ ህግ'), 'condition': body.get('condition', ''), 'action': body.get('action', ''), 'active': body.get('active', True), 'created_at': datetime.now().isoformat()}
+        rules.append(rule)
+        set_config('business_rules', rules)
+        return jsonify({"ok": True, "rule": rule})
+    if request.method == 'DELETE':
+        rule_id = request.args.get('id')
+        if rule_id:
+            rules = get_config('business_rules', [])
+            rules = [r for r in rules if r.get('id') != int(rule_id)]
+            set_config('business_rules', rules)
+            return jsonify({"ok": True})
+        return jsonify({"error": "id required"}), 400
+
+# የስራ ሂደቶች
+@app.route('/api/admin/workflows', methods=['GET', 'POST', 'DELETE'])
+def api_admin_workflows():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    if request.method == 'GET':
+        return jsonify(get_config('workflows', []))
+    if request.method == 'POST':
+        body = request.get_json(silent=True) or {}
+        workflows = get_config('workflows', [])
+        workflow = {'id': len(workflows) + 1, 'name': body.get('name', 'አዲስ ሂደት'), 'steps': body.get('steps', []), 'active': body.get('active', True), 'created_at': datetime.now().isoformat()}
+        workflows.append(workflow)
+        set_config('workflows', workflows)
+        return jsonify({"ok": True, "workflow": workflow})
+    if request.method == 'DELETE':
+        workflow_id = request.args.get('id')
+        if workflow_id:
+            workflows = get_config('workflows', [])
+            workflows = [w for w in workflows if w.get('id') != int(workflow_id)]
+            set_config('workflows', workflows)
+            return jsonify({"ok": True})
+        return jsonify({"error": "id required"}), 400
+
+# ሁለንተናዊ መድረክ ድጋፍ
+@app.route('/api/platform/config')
+def api_platform_config():
+    platform = request.args.get('platform', 'web')
+    config = {
+        'app_name': get_config('design_company_name', 'Shalom Technology'),
+        'logo_url': get_config('design_logo_url', ''),
+        'primary_color': get_config('design_primary_color', '#4a9eff'),
+        'api_url': BASE_URL,
+        'telegram_bot': BOT_USERNAME,
+        'channel': CHANNEL_ID,
+        'features': {'products': True, 'jobs': True, 'feedback': True, 'banks': True, 'applications': True, 'promos': True}
+    }
+    return jsonify(config)
+
+# የ777 ልዩ ትዕዛዝ
+@app.route('/api/secret/777', methods=['POST'])
+def api_secret_777():
+    body = request.get_json(silent=True) or {}
+    chat_id = body.get('chat_id')
+    user_id = body.get('user_id')
+    if str(user_id) != str(OWNER_CHAT_ID):
+        return jsonify({"error": "unauthorized"}), 403
+    if chat_id:
+        requests.post(f"{TELEGRAM_URL}/sendMessage", json={
+            'chat_id': chat_id,
+            'text': "🎵 Wow my boss is here! 🎵\n❤️ My boss my boss I love you! ❤️"
+        })
+    return jsonify({"ok": True})
+
+# የአድሚን ሙሉ ማዋቀሪያ
+@app.route('/api/admin/full_config')
+def api_admin_full_config():
+    if not require_admin():
+        return jsonify({"error": "forbidden"}), 403
+    config = {
+        'design': {
+            'primary_color': get_config('design_primary_color', '#4a9eff'),
+            'bg_color': get_config('design_bg_color', '#0b1219'),
+            'card_bg': get_config('design_card_bg', '#17212b'),
+            'logo': get_config('design_logo', '📱'),
+            'logo_url': get_config('design_logo_url', ''),
+            'company_name': get_config('design_company_name', 'Shalom Technology'),
+            'tagline': get_config('design_tagline', '✨ የእርስዎ የደህንነት አጋር ✨')
+        },
+        'settings': {
+            'language': get_config('setting_language', 'am'),
+            'auto_promo_enabled': get_config('auto_promo_enabled', True),
+            'auto_promo_hours': get_config('auto_promo_hours', [9, 12, 15, 17, 19])
+        },
+        'pages': get_config('custom_pages', []),
+        'buttons': get_config('custom_buttons', []),
+        'icons': get_config('custom_icons', []),
+        'rules': get_config('business_rules', []),
+        'workflows': get_config('workflows', []),
+        'dataflows': get_config('dataflows', [])
+    }
+    return jsonify(config)
+
+def execute_business_rules(event_type, data):
+    rules = get_config('business_rules', [])
+    for rule in rules:
+        if not rule.get('active', True):
+            continue
+        try:
+            if rule['condition'] == 'text_contains_777' and '777' in str(data.get('text', '')):
+                if data.get('chat_id'):
+                    requests.post(f"{TELEGRAM_URL}/sendMessage", json={
+                        'chat_id': data['chat_id'],
+                        'text': "🎵 Wow my boss is here! 🎵\n❤️ My boss my boss I love you! ❤️"
+                    })
+        except Exception as e:
+            print(f"Rule execution error: {e}")
+
 ADMIN_HTML = """
 <!DOCTYPE html>
 <html lang="am">
@@ -2499,12 +2847,10 @@ ADMIN_HTML = """
 </head>
 <body>
 <div id="app"><p class="denied">🔒 በማረጋገጥ ላይ...</p></div>
-
 <script>
 const tg = window.Telegram.WebApp;
 tg.ready(); tg.expand();
 const initData = tg.initData;
-
 async function init() {
   const verifyRes = await fetch('/api/admin/verify', {
     method: 'POST', headers: {'Content-Type':'application/json'},
@@ -2517,7 +2863,6 @@ async function init() {
   }
   render();
 }
-
 function render() {
   document.getElementById('app').innerHTML = `
     <h1><img src="/static/logo.jpg" style="width:24px;height:24px;border-radius:6px;vertical-align:middle;margin-right:6px;">⚙️ Admin Dashboard</h1>
@@ -2532,14 +2877,12 @@ function render() {
   `;
   loadStats(); loadProducts(); loadCustomers();
 }
-
 function showTab(name) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.getElementById(name).classList.add('active');
   event.target.classList.add('active');
 }
-
 async function loadStats() {
   const res = await fetch('/api/admin/stats', {headers:{'X-Init-Data': initData}});
   const s = await res.json();
@@ -2553,7 +2896,6 @@ async function loadStats() {
     </div>
   `;
 }
-
 async function loadProducts() {
   const res = await fetch('/api/products');
   const products = await res.json();
@@ -2572,7 +2914,6 @@ async function loadProducts() {
     `).join('')}
   `;
 }
-
 async function addProduct() {
   const name = document.getElementById('p-name').value;
   const category = document.getElementById('p-cat').value;
@@ -2585,12 +2926,10 @@ async function addProduct() {
   });
   loadProducts();
 }
-
 async function delProduct(id) {
   await fetch('/api/admin/products/'+id, {method:'DELETE', headers:{'X-Init-Data': initData}});
   loadProducts();
 }
-
 async function loadCustomers() {
   const res = await fetch('/api/admin/customers', {headers:{'X-Init-Data': initData}});
   const customers = await res.json();
@@ -2602,7 +2941,6 @@ async function loadCustomers() {
     </div>
   `).join('') || '<p class="denied">ምንም ደንበኛ የለም</p>';
 }
-
 init();
 </script>
 </body>
@@ -2704,18 +3042,15 @@ def handle_ai_channel_post(post):
     chat_username = f"@{chat.get('username', '')}" if chat.get('username') else str(chat.get('id'))
     if chat_username != AI_CHANNEL_ID and str(chat.get('id')) != AI_CHANNEL_ID:
         return
-
     caption = post.get('caption') or post.get('text') or ''
     photos = post.get('photo')
     photo_b64 = None
     if photos:
         largest = photos[-1]
         photo_b64 = download_telegram_photo_as_base64(largest['file_id'])
-
     lines = [l.strip() for l in caption.split('\n') if l.strip()]
     if not lines:
         return
-
     if '#ምርት' in caption or '#product' in caption.lower():
         lines = [l for l in lines if '#ምርት' not in l and '#product' not in l.lower()]
         if not lines:
@@ -2726,7 +3061,6 @@ def handle_ai_channel_post(post):
         photos_list = [photo_b64] if photo_b64 else []
         add_product(name, category, description, photos_list)
         requests.post(f"{TELEGRAM_URL}/sendMessage", json={'chat_id': OWNER_CHAT_ID, 'text': f"✅ አዲስ ምርት ከ AI ቻናል ተጨመረ: {name}"})
-
     elif '#ስራ' in caption or '#job' in caption.lower():
         lines = [l for l in lines if '#ስራ' not in l and '#job' not in l.lower()]
         if not lines:
@@ -2736,7 +3070,6 @@ def handle_ai_channel_post(post):
         description = '\n'.join(lines[2:]) if len(lines) > 2 else ''
         add_job(title, description, location)
         requests.post(f"{TELEGRAM_URL}/sendMessage", json={'chat_id': OWNER_CHAT_ID, 'text': f"✅ አዲስ ስራ ከ AI ቻናል ተጨመረ: {title}"})
-
     else:
         count = add_promo(caption)
         post_random_promo()
@@ -2746,42 +3079,36 @@ def handle_ai_channel_post(post):
 def index():
     if request.method == 'GET':
         return "Marshalom Bot is running! 🤖"
-
     if not TELEGRAM_TOKEN:
         return "TELEGRAM_TOKEN not set", 500
-
     try:
         data = request.get_json(silent=True)
-
         if data and 'channel_post' in data:
             handle_ai_channel_post(data['channel_post'])
             return "OK"
-
         if not data or 'message' not in data:
             return "OK"
-
         msg = data['message']
         chat_id = msg['chat']['id']
         user = msg.get('from', {})
         text = msg.get('text', '')
-
         name = user.get('first_name', '')
         if user.get('last_name'):
             name += ' ' + user['last_name']
         username = user.get('username', '')
         user_id = user.get('id', '')
-
         info = f"""👤 አዲስ መልእክት!
 ስም: {name}
 የተጠቃሚ ስም: @{username if username else 'የለም'}
 መታወቂያ: {user_id}
 📝: {text}
 🔗: tg://user?id={user_id}"""
-
         url = f"{TELEGRAM_URL}/sendMessage"
-
         upsert_customer(user_id, name, username)
-
+        
+        # Execute business rules
+        execute_business_rules('message', {'chat_id': chat_id, 'text': text, 'user_id': user_id})
+        
         if 'web_app_data' in msg:
             try:
                 wa_data = json.loads(msg['web_app_data'].get('data', '{}'))
@@ -2799,7 +3126,6 @@ def index():
                     'text': f"💰 የዋጋ ጥያቄ (ከካታሎግ)!\nምርት: {product_name}\n\n{info}"
                 })
             return "OK"
-
         if text.startswith('/admin'):
             parts = text.split(' ', 1)
             if len(parts) == 2:
@@ -2816,7 +3142,6 @@ def index():
             else:
                 requests.post(url, json={'chat_id': chat_id, 'text': '🔒 እባክዎ የይለፍ ቃል ያስገቡ፡ /admin የይለፍ_ቃል'})
                 return "OK"
-
         if text.startswith('/technical'):
             parts = text.split(' ', 1)
             if len(parts) == 2:
@@ -2833,12 +3158,10 @@ def index():
             else:
                 requests.post(url, json={'chat_id': chat_id, 'text': '🔒 እባክዎ የይለፍ ቃል ያስገቡ፡ /technical የይለፍ_ቃል'})
                 return "OK"
-
         if text == '/logout':
             clear_session(chat_id)
             requests.post(url, json={'chat_id': chat_id, 'text': '✅ ወጥተዋል (logged out)።'})
             return "OK"
-
         if text.startswith('/login '):
             parts = text.split(' ', 2)
             if len(parts) == 3:
@@ -2858,7 +3181,6 @@ def index():
             else:
                 requests.post(url, json={'chat_id': chat_id, 'text': '🔒 ይህን ይጠቀሙ፡ /login username password'})
             return "OK"
-
         if text.startswith('/setpassword '):
             session = get_session(chat_id)
             if session and session['role'] == 'employee':
@@ -2872,7 +3194,6 @@ def index():
             else:
                 requests.post(url, json={'chat_id': chat_id, 'text': '🔒 መጀመሪያ ይግቡ፡ /login username password'})
             return "OK"
-
         if text.startswith('/resetpassword '):
             if is_team_leader_or_admin(chat_id):
                 target_username = text[len('/resetpassword '):].strip()
@@ -2888,7 +3209,6 @@ def index():
             else:
                 requests.post(url, json={'chat_id': chat_id, 'text': '🚫 ይህ ትዕዛዝ ለአድሚን/ቲም ሊደር ብቻ ነው።'})
             return "OK"
-
         if text.startswith('/setrole '):
             if is_admin_chat(chat_id):
                 parts = text[len('/setrole '):].split(' ', 1)
@@ -2900,7 +3220,6 @@ def index():
             else:
                 requests.post(url, json={'chat_id': chat_id, 'text': '🚫 ይህ ትዕዛዝ ለአድሚን ብቻ ነው።'})
             return "OK"
-
         if text.startswith('/feedback '):
             feedback_text = text[len('/feedback '):].strip()
             if feedback_text:
@@ -2909,7 +3228,6 @@ def index():
             else:
                 requests.post(url, json={'chat_id': chat_id, 'text': '❌ ባዶ አስተያየት አይቀበልም።'})
             return "OK"
-
         if text == '/viewfeedback':
             if is_admin_chat(chat_id):
                 items = get_recent_feedback(20)
@@ -2921,7 +3239,6 @@ def index():
             else:
                 requests.post(url, json={'chat_id': chat_id, 'text': '🚫 ይህ ትዕዛዝ ለአድሚን ብቻ ነው።'})
             return "OK"
-
         if text == '/myprofile':
             session = get_session(chat_id)
             if session and session['role'] == 'employee':
@@ -2929,26 +3246,23 @@ def index():
                 if emp:
                     role_label = "🌟 ቲም ሊደር" if emp.get('role') == 'team_leader' else "👤 ሰራተኛ"
                     profile_text = f"""👤 የግል መገለጫ ({role_label})
-
 ስም: {emp['full_name']}
 ስራ: {emp['position']}
 ደመወዝ: {emp['salary']}
-
 💰 ቦነስ:
 {emp['bonus'] or 'የለም'}
-
 ⚠️ ማስጠንቀቂያ:
 {emp['warnings'] or 'የለም'}
-
 📋 ስራዎች:
 {emp['tasks'] or 'የለም'}"""
+                    if emp.get('photo_url'):
+                        profile_text += f"\n📸 ፎቶ: {emp['photo_url']}"
                     requests.post(url, json={'chat_id': chat_id, 'text': profile_text})
                 else:
                     requests.post(url, json={'chat_id': chat_id, 'text': '❌ መገለጫ አልተገኘም።'})
             else:
                 requests.post(url, json={'chat_id': chat_id, 'text': '🔒 መጀመሪያ ይግቡ፡ /login username password'})
             return "OK"
-
         if is_admin_chat(chat_id):
             if text.startswith('/addemployee '):
                 try:
@@ -2962,7 +3276,6 @@ def index():
                         'text': "❌ ትክክለኛ ፎርማት፡\n/addemployee username|password|ሙሉ ስም|ስራ|ደመወዝ"
                     })
                 return "OK"
-
             if text == '/employees':
                 emps = list_employees()
                 if emps:
@@ -2971,7 +3284,6 @@ def index():
                     listing = "ምንም ሰራተኛ የለም።"
                 requests.post(url, json={'chat_id': chat_id, 'text': f"👥 ሰራተኞች:\n\n{listing}"})
                 return "OK"
-
             if text.startswith('/setbonus '):
                 parts = text[len('/setbonus '):].split(' ', 1)
                 if len(parts) == 2:
@@ -2980,7 +3292,6 @@ def index():
                 else:
                     requests.post(url, json={'chat_id': chat_id, 'text': "❌ ይህን ይጠቀሙ፡ /setbonus username መጠን"})
                 return "OK"
-
             if text.startswith('/warn '):
                 parts = text[len('/warn '):].split(' ', 1)
                 if len(parts) == 2:
@@ -2989,7 +3300,6 @@ def index():
                 else:
                     requests.post(url, json={'chat_id': chat_id, 'text': "❌ ይህን ይጠቀሙ፡ /warn username ጽሑፍ"})
                 return "OK"
-
             if text.startswith('/addtask '):
                 parts = text[len('/addtask '):].split(' ', 1)
                 if len(parts) == 2:
@@ -2998,7 +3308,6 @@ def index():
                 else:
                     requests.post(url, json={'chat_id': chat_id, 'text': "❌ ይህን ይጠቀሙ፡ /addtask username ጽሑፍ"})
                 return "OK"
-
             if text == '/seedproducts':
                 seed_data = [
                     ("CALUS VC9 4G Outdoor Solar Security Camera", "CCTV ካሜራ",
@@ -3021,7 +3330,6 @@ def index():
                     add_product(name, category, desc, photo)
                 requests.post(url, json={'chat_id': chat_id, 'text': f"✅ {len(seed_data)} ምርቶች ተጨምረዋል! /admin → 🛍️ ምርቶች tab ላይ ይመልከቱ።"})
                 return "OK"
-
             if text.startswith('/addpromo '):
                 promo_text = text[len('/addpromo '):].strip()
                 if promo_text:
@@ -3033,17 +3341,14 @@ def index():
                 else:
                     requests.post(url, json={'chat_id': chat_id, 'text': "❌ ባዶ ጽሑፍ አይቀበልም።"})
                 return "OK"
-
             if text == '/promocount':
                 count = len(load_promos())
                 requests.post(url, json={'chat_id': chat_id, 'text': f"📦 አጠቃላይ ማስታወቂያዎች: {count}"})
                 return "OK"
-
             if text == '/postnow':
                 post_random_promo()
                 requests.post(url, json={'chat_id': chat_id, 'text': "✅ ማስታወቂያ ወደ ቻናል ተልኳል።"})
                 return "OK"
-
             if text.startswith('/send '):
                 try:
                     parts = text.split(' ', 2)
@@ -3061,17 +3366,14 @@ def index():
                         'text': "❌ የተሳሳተ ፎርማት። ይህን ይጠቀሙ፡\n/send USER_ID መልእክት እዚህ"
                     })
                 return "OK"
-
         requests.post(
             f"{TELEGRAM_URL}/forwardMessage",
             json={'chat_id': OWNER_CHAT_ID, 'from_chat_id': chat_id, 'message_id': msg['message_id']}
         )
         requests.post(url, json={'chat_id': OWNER_CHAT_ID, 'text': info})
-
         if text.startswith('/start'):
             parts = text.split(' ', 1)
             start_param = parts[1] if len(parts) > 1 else None
-
             if start_param == 'price':
                 requests.post(url, json={
                     'chat_id': chat_id,
@@ -3082,11 +3384,8 @@ def index():
                     'text': f"💰 የዋጋ ጥያቄ ደረሰ!\n\n{info}"
                 })
                 return "OK"
-
-            # Normal /start - opens mini app directly
             send_with_webapp_button(chat_id, '🚀 Marshalom Application', '🚀 ክፈት', '/webapp')
             return "OK"
-
         if 'contact' in msg:
             contact = msg['contact']
             phone = contact.get('phone_number', 'N/A')
@@ -3096,7 +3395,6 @@ def index():
             })
             requests.post(url, json={'chat_id': chat_id, 'text': '✅ አመሰግናለሁ! ስልክ ቁጥርዎ ደርሶናል።'})
             return "OK"
-
         ai_reply = ask_deepseek(text)
         if ai_reply:
             reply = f"🤖 *Marshalom AI ረዳት*\n\n{ai_reply}"
@@ -3104,14 +3402,12 @@ def index():
         else:
             reply = BUSY_MESSAGE
             ai_reply_text = "AI not available"
-
         requests.post(url, json={'chat_id': chat_id, 'text': reply, 'parse_mode': 'Markdown'})
         requests.post(url, json={
             'chat_id': OWNER_CHAT_ID,
             'text': f"{info}\n\n🤖 *AI መልስ:*\n{ai_reply_text}",
             'parse_mode': 'Markdown'
         })
-
         return "OK"
     except Exception as e:
         print(f"Error: {e}")
@@ -3119,6 +3415,7 @@ def index():
 
 init_db()
 schedule_daily_promos()
+schedule_auto_update()
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
